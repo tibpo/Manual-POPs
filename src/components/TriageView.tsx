@@ -32,7 +32,7 @@ export function TriageView({
   const stepNumber = history.length;
 
   return (
-    <section className="fade-in">
+    <section id="triageView" className="fade-in">
       <div className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden">
         {/* Cabeçalho do Assistente */}
         <div className="bg-stone-100/80 border-b border-stone-200 px-5 sm:px-7 py-4 flex flex-wrap items-center justify-between gap-3">

@@ -57,7 +57,7 @@ export function PopDetailView({
   const nextPop = popIndex < POPS.length - 1 ? POPS[popIndex + 1] : null;
 
   return (
-    <section className="fade-in">
+    <section id="detailView" className="fade-in">
       {/* Barra superior de navegação do POP */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex flex-wrap items-center gap-2">

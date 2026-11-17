@@ -60,4 +60,21 @@ export type TriageHistoryEntry =
   | { type: "node"; key: TriageNodeKey }
   | { type: "result"; key: string; data: TriageResultNode };
 
-export type PortalMode = "triage" | "catalog" | "detail";
+export type PortalMode =
+  | "triage"
+  | "catalog"
+  | "detail"
+  | "manuals"
+  | "reader";
+
+export interface ManualMetadata {
+  id: ThemeId;
+  kicker: string;
+  dept: string;
+  title: string;
+  lead: string;
+  rangeLabel: string;
+  fileName: string;
+  rule: string;
+  pops: PopItem[];
+}

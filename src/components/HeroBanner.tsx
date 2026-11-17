@@ -2,7 +2,10 @@ import React from "react";
 
 export function HeroBanner() {
   return (
-    <section className="bg-crimson text-white border-b border-crimson-dark">
+    <section
+      id="heroBanner"
+      className="bg-crimson text-white border-b border-crimson-dark"
+    >
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-7 sm:py-9">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
           <div className="lg:col-span-7">

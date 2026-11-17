@@ -85,3 +85,120 @@ code.inline-code {
     transform: translateY(0);
   }
 }
+
+.pop-target-highlight {
+  box-shadow: 0 0 0 3px #9f1239 !important;
+  transition: box-shadow 0.3s ease;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 0mm;
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  html,
+  body {
+    background: #faf8f5 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+  header,
+  #heroBanner,
+  #triageView,
+  #catalogView,
+  #detailView,
+  #manualsView,
+  #pdfViewerModal,
+  #pdfToast,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #themeReaderView {
+    display: block !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #themeReaderToolbar {
+    display: none !important;
+  }
+  #themeReaderContainer {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  #themeReaderContainer > * + * {
+    margin-top: 0 !important;
+  }
+  .manual-cover-page {
+    width: 100% !important;
+    height: 297mm !important;
+    min-height: 297mm !important;
+    max-height: 297mm !important;
+    padding: 22mm 20mm !important;
+    border-radius: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    box-sizing: border-box !important;
+  }
+  .print-content-wrapper {
+    background-color: #faf8f5 !important;
+    padding: 16mm 18mm !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin-top: 0 !important;
+    box-decoration-break: clone !important;
+    -webkit-box-decoration-break: clone !important;
+  }
+  .neste-guia-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 16px !important;
+  }
+  .neste-guia-card {
+    min-height: auto !important;
+    padding: 10px !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .golden-rule-box {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 16px !important;
+  }
+  .manual-pop-card {
+    padding: 14px 16px !important;
+    margin-bottom: 14px !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .win-mockup {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .print-doc-footer {
+    margin-top: 14px !important;
+    padding-top: 10px !important;
+    border-top: 1px solid #d6d3d1 !important;
+    font-size: 10px !important;
+    color: #57534e !important;
+  }
+}

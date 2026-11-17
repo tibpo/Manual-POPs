@@ -3,12 +3,12 @@ import { EcovisLogo } from "@/components/EcovisLogo";
 
 export function Footer() {
   return (
-    <footer className="border-t border-stone-200 bg-white mt-12">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-stone-500">
-        <div className="flex items-center gap-2.5">
-          <EcovisLogo className="h-5 w-auto" />
-          <span className="font-semibold text-stone-700">
-            • Departamento de Tecnologia da Informação (TI)
+    <footer className="bg-white border-t border-stone-200 mt-10">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-stone-500">
+        <div className="flex items-center gap-2">
+          <EcovisLogo className="h-4 w-auto" />
+          <span className="font-semibold text-stone-600">
+            • Tecnologia da Informação
           </span>
         </div>
         <span>

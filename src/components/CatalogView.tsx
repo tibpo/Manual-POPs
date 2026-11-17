@@ -8,9 +8,13 @@ import type { ThemeId } from "@/types/pop";
 interface CatalogViewProps {
   selectedTheme: ThemeId;
   searchQuery: string;
+  catalogIndexExpanded: boolean;
   onSelectTheme: (themeId: ThemeId) => void;
+  onToggleCatalogIndex: () => void;
   onOpenPop: (code: string) => void;
   onClearSearch: () => void;
+  onOpenThemeReader: (themeId: ThemeId) => void;
+  onPdfAction: (themeId: ThemeId, action: "view" | "download") => void;
 }
 
 function normalizeText(value: string): string {
@@ -23,32 +27,48 @@ function normalizeText(value: string): string {
 export function CatalogView({
   selectedTheme,
   searchQuery,
+  catalogIndexExpanded,
   onSelectTheme,
+  onToggleCatalogIndex,
   onOpenPop,
   onClearSearch,
+  onOpenThemeReader,
+  onPdfAction,
 }: CatalogViewProps) {
   const activeTheme = useMemo(
     () => THEMES.find((t) => t.id === selectedTheme) ?? THEMES[0],
     [selectedTheme]
   );
 
+  const normalizedQuery = useMemo(
+    () => normalizeText(searchQuery.trim()),
+    [searchQuery]
+  );
+
   const filteredPops = useMemo(() => {
-    const q = normalizeText(searchQuery.trim());
     return POPS.filter((pop) => {
       const matchTheme =
         selectedTheme === "all" || pop.themeId === selectedTheme;
       if (!matchTheme) return false;
-      if (!q) return true;
+      if (!normalizedQuery) return true;
 
       const haystack = normalizeText(
         `${pop.code} ${pop.goal} ${pop.title} ${pop.keywords}`
       );
-      return haystack.includes(q);
+      return haystack.includes(normalizedQuery);
     });
-  }, [selectedTheme, searchQuery]);
+  }, [selectedTheme, normalizedQuery]);
+
+  const isIndexExpanded =
+    catalogIndexExpanded ||
+    filteredPops.length <= 12 ||
+    normalizedQuery.length > 0;
+  const visibleIndexItems = isIndexExpanded
+    ? filteredPops
+    : filteredPops.slice(0, 8);
 
   return (
-    <section className="fade-in">
+    <section id="catalogView" className="fade-in">
       {/* Abas dos 5 Temas */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2.5">
@@ -83,19 +103,102 @@ export function CatalogView({
       </div>
 
       {/* Banner descritivo do Tema Selecionado */}
-      <div className="bg-white border border-stone-200 border-l-4 border-l-crimson rounded-r-xl p-4 sm:p-5 mb-6 shadow-sm">
-        <div className="text-xs font-extrabold uppercase tracking-wider text-crimson mb-1">
-          {activeTheme.id === "all"
-            ? "Catálogo Completo"
-            : `Tema ${activeTheme.num}`}
+      <div className="bg-white border border-stone-200 border-l-4 border-l-crimson rounded-r-xl p-4 sm:p-5 mb-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <div className="text-xs font-extrabold uppercase tracking-wider text-crimson mb-1">
+              {activeTheme.id === "all"
+                ? "Catálogo Completo"
+                : `Tema ${activeTheme.num}`}
+            </div>
+            <h2 className="text-lg sm:text-xl font-extrabold text-stoneink">
+              {activeTheme.name}
+            </h2>
+            <p className="text-xs sm:text-sm text-stone-600 mt-1">
+              {activeTheme.desc}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => onOpenThemeReader(activeTheme.id)}
+              className="bg-stone-100 hover:bg-stone-200 text-stoneink border border-stone-300 text-xs font-bold px-3 py-2 rounded-lg transition"
+            >
+              📖 Ler Tema Completo
+            </button>
+            <button
+              type="button"
+              onClick={() => onPdfAction(activeTheme.id, "view")}
+              className="bg-crimson-light hover:bg-rose-100 text-crimson border border-crimson-border text-xs font-bold px-3 py-2 rounded-lg transition"
+            >
+              👁 Abrir PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => onPdfAction(activeTheme.id, "download")}
+              className="bg-crimson hover:bg-crimson-dark text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-sm transition"
+            >
+              ⬇ Baixar PDF Completo
+            </button>
+          </div>
         </div>
-        <h2 className="text-lg sm:text-xl font-extrabold text-stoneink">
-          {activeTheme.name}
-        </h2>
-        <p className="text-xs sm:text-sm text-stone-600 mt-1">
-          {activeTheme.desc}
-        </p>
       </div>
+
+      {/* Índice Rápido "Neste guia" em Grade de Quadrados Clicáveis */}
+      {filteredPops.length > 0 && (
+        <div id="catalogQuickIndex" className="mb-6">
+          <div className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-stone-200">
+              <div className="text-xs sm:text-sm font-extrabold text-stoneink">
+                Neste guia{" "}
+                <span className="font-medium text-stone-500">
+                  (clique ou consulte pela sua necessidade)
+                </span>
+              </div>
+              {filteredPops.length > 12 && normalizedQuery.length === 0 && (
+                <button
+                  type="button"
+                  onClick={onToggleCatalogIndex}
+                  className="text-xs font-bold text-crimson hover:underline"
+                >
+                  {isIndexExpanded
+                    ? "Recolher quadrados ↑"
+                    : `Ver todos os ${filteredPops.length} quadrados ↓`}
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {visibleIndexItems.map((p) => (
+                <button
+                  key={`quick-${p.code}`}
+                  type="button"
+                  onClick={() => onOpenPop(p.code)}
+                  className="text-left bg-cream/70 hover:bg-white border border-stone-200 hover:border-crimson rounded-xl p-3.5 transition shadow-sm hover:shadow-md group flex flex-col justify-between min-h-[124px]"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="bg-crimson-light group-hover:bg-crimson text-crimson group-hover:text-white border border-crimson-border group-hover:border-crimson text-[11px] font-extrabold px-2 py-0.5 rounded transition">
+                        {p.code}
+                      </span>
+                      <span className="text-xs font-extrabold text-crimson opacity-70 group-hover:opacity-100 group-hover:translate-x-0.5 transition">
+                        →
+                      </span>
+                    </div>
+                    <div className="text-xs sm:text-[13px] font-extrabold text-stoneink group-hover:text-crimson transition leading-snug">
+                      {p.goal}
+                    </div>
+                  </div>
+                  <div className="text-[11.5px] font-medium text-stone-500 group-hover:text-stone-700 mt-2.5 pt-2 border-t border-stone-200/70 line-clamp-2 leading-snug">
+                    {p.title}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grid de Cards Clicáveis (Ordem Invertida: Necessidade -> POP -> Título) */}
       {filteredPops.length > 0 ? (

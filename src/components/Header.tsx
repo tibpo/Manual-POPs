@@ -21,6 +21,11 @@ export function Header({
   onSearchChange,
   onClearSearch,
 }: HeaderProps) {
+  const activeBtnClass =
+    "flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold transition bg-white text-crimson shadow-sm whitespace-nowrap";
+  const inactiveBtnClass =
+    "flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs sm:text-sm font-bold transition text-white/85 hover:text-white whitespace-nowrap";
+
   return (
     <header className="bg-crimson text-white shadow-md sticky top-0 z-30">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -94,24 +99,27 @@ export function Header({
             <button
               type="button"
               onClick={() => onSwitchMode("triage")}
-              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-bold transition ${
-                mode === "triage"
-                  ? "bg-white text-crimson shadow-sm"
-                  : "text-white/85 hover:text-white"
-              }`}
+              className={mode === "triage" ? activeBtnClass : inactiveBtnClass}
             >
-              Triagem Inteligente
+              Triagem
             </button>
             <button
               type="button"
               onClick={() => onSwitchMode("catalog")}
-              className={`flex-1 sm:flex-none px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-bold transition ${
-                mode === "catalog"
-                  ? "bg-white text-crimson shadow-sm"
-                  : "text-white/85 hover:text-white"
-              }`}
+              className={mode === "catalog" ? activeBtnClass : inactiveBtnClass}
             >
-              Todos os 38 POPs
+              38 POPs
+            </button>
+            <button
+              type="button"
+              onClick={() => onSwitchMode("manuals")}
+              className={
+                mode === "manuals" || mode === "reader"
+                  ? activeBtnClass
+                  : inactiveBtnClass
+              }
+            >
+              Manuais (PDF)
             </button>
           </div>
         </div>
