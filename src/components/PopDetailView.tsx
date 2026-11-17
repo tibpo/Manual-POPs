@@ -92,8 +92,11 @@ export function PopDetailView({
       </div>
 
       {/* Cartão Principal do POP */}
-      <article className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="bg-stone-50 border-b border-stone-200 px-5 sm:px-8 py-6">
+      <article
+        id="detailCard"
+        className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden"
+      >
+        <div className="detail-header-mobile bg-stone-50 border-b border-stone-200 px-5 sm:px-8 py-6">
           <div className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-crimson mb-2">
             {pop.goal}
           </div>
@@ -107,7 +110,7 @@ export function PopDetailView({
           </div>
         </div>
 
-        <div className="p-5 sm:p-8">
+        <div className="detail-body-mobile p-5 sm:p-8">
           <div className="divide-y divide-dashed divide-stone-200">
             {pop.steps.map((step, i) => {
               const padClass =
@@ -121,15 +124,15 @@ export function PopDetailView({
 
               return (
                 <div key={`${pop.code}-step-${i + 1}`} className={padClass}>
-                  <div className="flex items-baseline gap-2.5 mb-1.5">
-                    <span className="text-xs font-extrabold uppercase tracking-wider text-crimson bg-crimson-light border border-crimson-border px-2 py-0.5 rounded">
+                  <div className="step-header-mobile flex items-baseline gap-2.5 mb-1.5">
+                    <span className="step-badge-mobile shrink-0 whitespace-nowrap text-xs font-extrabold uppercase tracking-wider text-crimson bg-crimson-light border border-crimson-border px-2 py-0.5 rounded">
                       Passo {i + 1}
                     </span>
-                    <h2 className="text-base sm:text-lg font-extrabold text-stoneink">
+                    <h2 className="text-base sm:text-lg font-extrabold text-stoneink leading-snug">
                       {step.lead}
                     </h2>
                   </div>
-                  <p className="text-sm sm:text-base text-stone-700 leading-relaxed">
+                  <p className="text-sm sm:text-base text-stone-700 leading-relaxed break-words">
                     <RichText text={step.text} onOpenPop={onOpenPop} />
                   </p>
                 </div>

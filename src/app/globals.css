@@ -32,6 +32,45 @@ code.inline-code {
   font-weight: 600;
 }
 
+/* Ajustes exclusivos para celulares / iPhone (<= 640px), mantendo desktop idêntico */
+@media (max-width: 640px) {
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+  .step-badge-mobile {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    display: inline-flex;
+    align-items: center;
+  }
+  .step-header-mobile {
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
+    gap: 0.6rem !important;
+  }
+  code.inline-code {
+    display: inline;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    line-height: 1.5;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  #detailCard {
+    border-radius: 0.875rem;
+  }
+  #detailCard .detail-body-mobile {
+    padding: 1.125rem 1rem !important;
+  }
+  #detailCard .detail-header-mobile {
+    padding: 1.125rem 1rem !important;
+  }
+}
+
 .fade-in {
   animation: fadeIn 0.22s ease-out;
 }
