@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { EcovisLogo } from "@/components/EcovisLogo";
 import type { PortalMode } from "@/types/pop";
 
 interface HeaderProps {
@@ -30,15 +31,15 @@ export function Header({
             onClick={onResetHome}
             className="text-left group focus:outline-none"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-lg sm:text-xl font-extrabold tracking-wider uppercase">
-                ECOVIS <span className="font-normal text-white/80">BPO</span>
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex items-center bg-white px-3 py-1.5 rounded-md shadow-sm">
+                <EcovisLogo className="h-6 sm:h-7 w-auto" />
               </span>
-              <span className="text-xs font-bold uppercase tracking-widest bg-white/15 px-2.5 py-0.5 rounded-full text-white">
+              <span className="text-xs font-bold uppercase tracking-widest bg-white/15 px-2.5 py-1 rounded-full text-white">
                 TI
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-white/85 font-medium mt-0.5 group-hover:text-white transition">
+            <p className="text-xs sm:text-sm text-white/85 font-medium mt-1.5 group-hover:text-white transition">
               Manual Interativo de Procedimentos Operacionais Padrão
             </p>
           </button>
