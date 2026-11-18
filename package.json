@@ -2,20 +2,18 @@
   "name": "manual-pops-ti-ecovis-bpo",
   "version": "1.0.0",
   "private": true,
-  "description": "Manual Interativo de POPs de TI - ECOVIS BPO (Next.js)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
   },
- "dependencies": {
-  "@vercel/analytics": "^1.5.0",
-  "next": "15.5.29",
-  "react": "...",
-  "react-dom": "..."
+  "dependencies": {
+    "@vercel/analytics": "^1.5.0",
+    "next": "15.5.29",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
 }
-  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.8",
