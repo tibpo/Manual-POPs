@@ -13,10 +13,9 @@ export const metadata: Metadata = {
   description:
     "Manual Interativo de Procedimentos Operacionais Padrão (POP-001 a POP-038) da TI - ECOVIS BPO.",
   verification: {
-    verification" content="x6lPX-9-GPeOa1dESnPtx29_rFMwJQ1nndIzfyzGaTk",
+    google: "x6lPX-9-GPeOa1dESnPtx29_rFMwJQ1nndIzfyzGaTk",
   },
 };
-
 
 export default function RootLayout({
   children,
