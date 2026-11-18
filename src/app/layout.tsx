@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
   description:
     "Manual Interativo de Procedimentos Operacionais Padrão (POP-001 a POP-038) da TI - ECOVIS BPO.",
   verification: {
-    google: "x6lPX-9-GPeOa1dESnPtx29_rFMwJQ1nndIzfyzGaTk",
+    google: "x61PX-9-GPeOa1dESnPtx29_rFMwJQ1nndIzfyzGaTk",
   },
 };
 
@@ -26,6 +27,7 @@ export default function RootLayout({
     <html lang="pt-BR" className={inter.variable}>
       <body className="min-h-screen flex flex-col font-sans selection:bg-crimson selection:text-white">
         {children}
+        <Analytics />
       </body>
     </html>
   );
