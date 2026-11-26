@@ -35,6 +35,7 @@ interface AdvancedPlaybook {
   id: string;
   title: string;
   triggers: string[];
+  comboTriggers?: string[][];
   relatedPopCodes: string[];
   intro: string;
   commands?: CommandSnippet[];
@@ -47,20 +48,32 @@ function normalize(text: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\bwi-fi\b/g, "wifi")
+    .replace(/\be-mail\b/g, "email")
+    .replace(/\be-mails\b/g, "emails")
+    .replace(/\be-cac\b/g, "ecac")
+    .replace(/\be-cnpj\b/g, "ecnpj")
+    .replace(/\be-cpf\b/g, "ecpf")
+    .replace(/\bwin\s*\+\s*r\b/g, "win r")
     .replace(/[^a-z0-9%\s/_.-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
+// Palavras genéricas de ligação, negação, sintomas ou interface que NUNCA devem pontuar POPs sozinhas
 const STOPWORDS = new Set([
+  "nao",
+  "sim",
   "como",
   "para",
   "meu",
   "minha",
   "meus",
+  "minhas",
   "esta",
   "estao",
   "estou",
+  "estava",
   "com",
   "sem",
   "uma",
@@ -79,23 +92,253 @@ const STOPWORDS = new Set([
   "essa",
   "este",
   "fazer",
+  "fazendo",
   "preciso",
   "quero",
+  "queria",
+  "gostaria",
   "ajuda",
+  "ajudar",
   "problema",
-  "erro",
+  "problemas",
   "duvida",
+  "duvidas",
   "site",
+  "portal",
   "muito",
   "mais",
+  "menos",
   "quando",
   "onde",
   "pelo",
   "pela",
+  "aparece",
+  "aparecer",
+  "aparecendo",
+  "apareceu",
+  "sumiu",
+  "sumiram",
+  "desapareceu",
+  "guia",
+  "guias",
+  "aba",
+  "abas",
+  "botao",
+  "botoes",
+  "opcao",
+  "opcoes",
+  "menu",
+  "icone",
+  "barra",
+  "funciona",
+  "funcionando",
+  "funcionar",
+  "consigo",
+  "conseguindo",
+  "consegue",
+  "abrir",
+  "abre",
+  "abriu",
+  "abrindo",
+  "fechar",
+  "fechou",
+  "carrega",
+  "carregar",
+  "carregando",
+  "usar",
+  "usando",
+  "achar",
+  "achei",
+  "encontrar",
+  "encontrei",
+  "mostrar",
+  "mostra",
+  "habilitar",
+  "ativar",
+  "ajustar",
+  "arrumar",
+  "corrigir",
+  "resolver",
+  "tentei",
+  "tentando",
+  "fica",
+  "ficou",
+  "parou",
+  "deu",
+  "dando",
+  "tem",
+  "tenho",
+  "tinha",
+  "pode",
+  "posso",
+  "poderia",
+  "favor",
+  "bom",
+  "boa",
+  "dia",
+  "tarde",
+  "noite",
+  "ola",
+  "oi",
+  "tudo",
+  "nada",
+  "algo",
+  "outro",
+  "outra",
+  "mesmo",
+  "ainda",
+  "tambem",
+  "sobre",
+  "entre",
+  "depois",
+  "antes",
+  "agora",
+  "hoje",
+  "ecovis",
 ]);
 
-// Base de Diagnóstico Técnico Avançado (Nível 2) traduzida de forma simples e segura (sem exigir senha de Admin)
+// Termos amplos que ajudam a desempatar, mas jamais validam sozinhos um POP sem o assunto principal
+const WEAK_CONTEXT_TOKENS = new Set([
+  "notebook",
+  "computador",
+  "maquina",
+  "windows",
+  "tela",
+  "arquivo",
+  "arquivos",
+  "pasta",
+  "pastas",
+  "aplicativo",
+  "programa",
+  "programas",
+  "rede",
+  "erro",
+  "falha",
+  "sistema",
+  "configurar",
+  "corporativo",
+  "empresa",
+]);
+
+function wordMatchesToken(word: string, token: string): boolean {
+  if (!word || !token) return false;
+  if (word === token) return true;
+  if (word.length >= 5 && token.length >= 5) {
+    const stem = token.slice(0, 5);
+    return word.startsWith(stem) || token.startsWith(word.slice(0, 5));
+  }
+  return false;
+}
+
+function textHasPhrase(textNorm: string, phraseNorm: string): boolean {
+  if (!textNorm || !phraseNorm) return false;
+  const padded = ` ${textNorm} `;
+  if (padded.includes(` ${phraseNorm} `)) {
+    return true;
+  }
+  if (!phraseNorm.includes(" ") && phraseNorm.length >= 5) {
+    const words = textNorm.split(" ");
+    return words.some((w) => wordMatchesToken(w, phraseNorm));
+  }
+  return false;
+}
+
+// Base de Diagnóstico Técnico Especialista (Nível 2) traduzida de forma simples e segura (sem exigir senha de Admin)
 const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
+  {
+    id: "outlook-grupos-interface",
+    title: "Guia Grupos, Pastas ou Faixa de Opções Sumiram no Outlook",
+    triggers: [
+      "guia grupos",
+      "grupos no outlook",
+      "outlook grupos",
+      "grupo do outlook",
+      "grupos sumiu",
+      "caixa compartilhada",
+      "pastas do outlook",
+      "painel de pastas",
+      "faixa de opcoes",
+      "resetnavpane",
+      "novo outlook",
+      "outlook classico",
+    ],
+    comboTriggers: [
+      ["outlook", "grupo"],
+      ["outlook", "grupos"],
+      ["outlook", "guia"],
+      ["outlook", "aba"],
+      ["outlook", "pasta"],
+      ["outlook", "pastas"],
+      ["outlook", "barra"],
+      ["outlook", "favoritos"],
+    ],
+    relatedPopCodes: [],
+    intro:
+      "Quando a seção ou guia 'Grupos' (ou o painel de pastas) não aparece no Outlook, normalmente é uma mudança de posição entre o Novo Outlook e o Outlook Clássico ou ocultação do painel lateral. Veja como localizar em segundos:",
+    steps: [
+      "1. No Novo Outlook (visual moderno): 'Grupos' não fica mais como guia no topo — olhe na barra vertical fina bem à esquerda da tela e clique no ícone 'Grupos' (pessoas) ou nos três pontinhos (...) > 'Grupos'.",
+      "2. No Outlook Clássico: role a lista de pastas da esquerda até o final (abaixo de 'Itens Enviados' e 'Lixo Eletrônico') e clique na setinha ao lado de 'Grupos' para expandir. Se a barra lateral inteira sumiu, aperte Ctrl + 6 ou vá em Exibir > Painel de Pastas > Normal.",
+      "3. Se as guias do topo (Página Inicial / Enviar e Receber / Exibir) sumiram: aperte Ctrl + F1 no teclado para fixar novamente a Faixa de Opções completa.",
+      "4. Faça o teste no navegador (outlook.office.com): se os Grupos aparecerem na Web mas não no aplicativo instalado, use o comando de restaurar painel abaixo. Se NÃO aparecerem nem na Web, sua conta ainda precisa ser incluída como membro do Grupo pela TI.",
+    ],
+    commands: [
+      {
+        label: "Opcional — Restaurar Painel de Navegação do Outlook Clássico",
+        whereToRun: "run",
+        command: "outlook.exe /resetnavpane",
+        explanation:
+          "Feche o Outlook antes e rode no Win + R: recria o menu lateral de pastas e grupos sem apagar nenhum e-mail.",
+      },
+    ],
+    safetyNote:
+      "Se você precisa ser adicionado a um Grupo de e-mail ou Caixa Compartilhada do seu setor, clique em Abrir Chamado abaixo informando o nome do grupo.",
+  },
+  {
+    id: "outlook-office-safe",
+    title: "Recuperar Outlook, E-mails ou Excel/Word com Falha",
+    triggers: [
+      "outlook",
+      "webmail",
+      "caixa de entrada",
+      "nao envia",
+      "nao recebe",
+      "email preso",
+      "caixa de saida",
+      "trabalhar offline",
+      "excel",
+      "word",
+      "powerpoint",
+      "planilha travando",
+      "outlook nao abre",
+      "modo de seguranca",
+      "/safe",
+    ],
+    relatedPopCodes: ["POP-031", "POP-007"],
+    intro:
+      "Para destravar o Outlook (e-mails presos, falha ao abrir perfil ou tela congelada) ou recuperar planilhas do Excel sem perder dados, siga estas verificações seguras:",
+    steps: [
+      "Se o Outlook abre mas não envia nem recebe e-mails: clique na guia 'Enviar/Receber' no topo e verifique se o botão 'Trabalhar Offline' está marcado (clique nele para desativar e reconectar).",
+      "Teste em Modo de Segurança com os comandos abaixo para isolar suplementos que estejam travando o aplicativo:",
+    ],
+    commands: [
+      {
+        label: "Opção A — Abrir o Outlook destravado (Modo Seguro)",
+        whereToRun: "run",
+        command: "outlook.exe /safe",
+        explanation:
+          "Clique em OK na janela de perfil. Abre o Outlook limpo sem suplementos externos pesados.",
+      },
+      {
+        label: "Opção B — Abrir o Excel limpo sem suplementos",
+        whereToRun: "run",
+        command: "excel.exe /safe",
+        explanation:
+          "Permite abrir, recuperar e salvar planilhas pesadas quando o Excel fecha sozinho ou congela.",
+      },
+    ],
+    safetyNote:
+      "Persistindo a falha fora do modo seguro, abra chamado abaixo para a TI executar o Reparo Rápido do Microsoft 365.",
+  },
   {
     id: "rede-ip-dns",
     title: "Reset de Rede, Renovação de IP e Limpeza de DNS via CMD",
@@ -235,14 +478,11 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "certificado",
       "token",
       "ecnpj",
-      "e-cnpj",
       "ecpf",
-      "e-cpf",
       "a1",
       "a3",
       "receita",
       "ecac",
-      "e-cac",
       "sefaz",
       "assinador",
       "serpro",
@@ -281,6 +521,7 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     title: "Recarregar Pastas de Rede, Políticas e Sistemas Internos / ERP",
     triggers: [
       "pasta de rede",
+      "pastas de rede",
       "mapeamento",
       "unidade z",
       "servidor",
@@ -319,44 +560,6 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     safetyNote:
       "Caso sua senha de rede ou usuário do sistema tenha bloqueado por tentativas, acione a TI pelo botão abaixo para desbloqueio imediato.",
-  },
-  {
-    id: "outlook-office-safe",
-    title: "Recuperar Outlook ou Excel Travando (Modo de Segurança)",
-    triggers: [
-      "outlook",
-      "caixa de entrada",
-      "nao envia",
-      "nao recebe",
-      "email preso",
-      "excel",
-      "word",
-      "planilha travando",
-      "outlook nao abre",
-      "modo de seguranca",
-      "/safe",
-    ],
-    relatedPopCodes: ["POP-031", "POP-007"],
-    intro:
-      "Quando o Outlook fica preso em 'Processando/Carregando perfil' ou o Excel congela ao abrir planilhas, inicie em Modo de Segurança para isolar suplementos com falha:",
-    commands: [
-      {
-        label: "Opção A — Abrir o Outlook destravado (Modo Seguro)",
-        whereToRun: "run",
-        command: "outlook.exe /safe",
-        explanation:
-          "Clique em OK na caixa de perfil. Se abrir normalmente, verifique no rodapé se 'Trabalhar Offline' não está ativado na aba Enviar/Receber.",
-      },
-      {
-        label: "Opção B — Abrir o Excel limpo sem suplementos pesados",
-        whereToRun: "run",
-        command: "excel.exe /safe",
-        explanation:
-          "Abre o Excel em modo leve para você conseguir abrir, recuperar e salvar sua planilha sem travar.",
-      },
-    ],
-    safetyNote:
-      "Persistindo o travamento fora do modo seguro, a TI pode executar o Reparo Rápido do Microsoft 365 remotamente.",
   },
   {
     id: "teams-audio-camera-reparo",
@@ -407,7 +610,7 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "documento preso",
       "spooler",
     ],
-    relatedPopCodes: ["POP-005", "POP-029"],
+    relatedPopCodes: ["POP-005"],
     intro:
       "Quando você manda imprimir e nada sai (ou um documento antigo trava toda a fila), acesse o painel clássico de filas:",
     commands: [
@@ -588,32 +791,108 @@ const POP_TO_PLAYBOOK_MAP: Record<string, string> = {
   "POP-038": "video-apps-nativos",
 };
 
-function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): number {
-  let score = 0;
-  const codeNorm = normalize(pop.code);
-  const titleNorm = normalize(pop.title);
-  const goalNorm = normalize(pop.goal);
-  const kwNorm = normalize(pop.keywords);
-  const stepsNorm = normalize(
-    pop.steps.map((s) => `${s.lead} ${s.text}`).join(" ")
+// Assuntos específicos que NÃO possuem POP dedicado entre os 38 POPs (evita sugerir POP de Wi-Fi/Pastas por engano!)
+function hasExternalSubjectWithoutDedicatedPop(queryNorm: string): boolean {
+  const externalAppSubjects = [
+    "outlook",
+    "webmail",
+    "caixa compartilhada",
+    "impressora",
+    "imprimir",
+    "scanner",
+    "escanear",
+    "spooler",
+    "certificado",
+    "ecac",
+    "sefaz",
+    "ecnpj",
+    "ecpf",
+    "serpro",
+    "erp",
+    "powerpoint",
+  ];
+  const mentionsExternal = externalAppSubjects.some((subj) =>
+    textHasPhrase(queryNorm, subj)
   );
+  if (!mentionsExternal) return false;
 
-  if (queryNorm.includes(codeNorm)) {
-    score += 40;
+  // Exceção legítima: se falar de e-mail/outlook suspeito, golpe, phishing ou boleto falso -> permite POP-016
+  if (
+    ["phishing", "golpe", "suspeito", "spam", "falso", "virus"].some((w) =>
+      textHasPhrase(queryNorm, w)
+    )
+  ) {
+    return false;
   }
+
+  return true;
+}
+
+function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): number {
+  const codeNorm = normalize(pop.code);
+  if (textHasPhrase(queryNorm, codeNorm)) {
+    return 60;
+  }
+
+  const titleWords = normalize(pop.title).split(" ").filter(Boolean);
+  const goalWords = normalize(pop.goal).split(" ").filter(Boolean);
+  const kwWords = normalize(pop.keywords).split(" ").filter(Boolean);
+  const stepsWords = normalize(
+    pop.steps.map((s) => `${s.lead} ${s.text}`).join(" ")
+  )
+    .split(" ")
+    .filter(Boolean);
+
+  let strongScore = 0;
+  let weakScore = 0;
+  let matchedSpecificTokens = 0;
 
   for (const token of tokens) {
     if (token.length < 2) continue;
-    const stem = token.length >= 5 ? token.slice(0, 5) : token;
 
-    if (kwNorm.includes(token)) score += 9;
-    else if (stem.length >= 4 && kwNorm.includes(stem)) score += 6;
+    const inKw = kwWords.some((w) => wordMatchesToken(w, token));
+    const inTitle = titleWords.some((w) => wordMatchesToken(w, token));
+    const inGoal = goalWords.some((w) => wordMatchesToken(w, token));
+    const inSteps = stepsWords.some((w) => wordMatchesToken(w, token));
 
-    if (titleNorm.includes(token)) score += 8;
-    else if (stem.length >= 4 && titleNorm.includes(stem)) score += 5;
+    if (!inKw && !inTitle && !inGoal && !inSteps) continue;
 
-    if (goalNorm.includes(token)) score += 5;
-    if (stepsNorm.includes(token)) score += 2;
+    if (WEAK_CONTEXT_TOKENS.has(token)) {
+      weakScore += 2;
+      continue;
+    }
+
+    matchedSpecificTokens += 1;
+    if (inKw) strongScore += 10;
+    if (inTitle) strongScore += 9;
+    if (inGoal) strongScore += 5;
+    if (inSteps) strongScore += 2;
+  }
+
+  // Sem ao menos 1 palavra específica real do tema do POP, descarta completamente!
+  if (matchedSpecificTokens === 0) {
+    return 0;
+  }
+
+  return strongScore + Math.min(weakScore, 4);
+}
+
+function scorePlaybook(pb: AdvancedPlaybook, queryNorm: string): number {
+  let score = 0;
+
+  for (const trig of pb.triggers) {
+    const trigNorm = normalize(trig);
+    if (textHasPhrase(queryNorm, trigNorm)) {
+      score += trigNorm.includes(" ") ? 24 : 15;
+    }
+  }
+
+  if (pb.comboTriggers) {
+    for (const combo of pb.comboTriggers) {
+      if (combo.every((term) => textHasPhrase(queryNorm, normalize(term)))) {
+        score += 32;
+      }
+    }
   }
 
   return score;
@@ -626,9 +905,10 @@ function isAdvancedExplicitRequest(queryNorm: string): boolean {
     "terminal",
     "executar",
     "win r",
-    "win+r",
-    "avancad",
+    "avancado",
+    "avancada",
     "comando",
+    "comandos",
     "ipconfig",
     "flushdns",
     "gpupdate",
@@ -643,8 +923,9 @@ function isAdvancedExplicitRequest(queryNorm: string): boolean {
     "ping",
     "certmgr",
     "inetcpl",
+    "resetnavpane",
   ];
-  return advSignals.some((s) => queryNorm.includes(s));
+  return advSignals.some((s) => textHasPhrase(queryNorm, s));
 }
 
 function isUnresolvedOrEscalationIntent(queryNorm: string): boolean {
@@ -686,8 +967,8 @@ function isPositiveConfirmation(queryNorm: string): boolean {
   ];
   return (
     queryNorm.length <= 45 &&
-    exactOrShort.some((p) => queryNorm.includes(p)) &&
-    !queryNorm.includes("nao")
+    exactOrShort.some((p) => textHasPhrase(queryNorm, p)) &&
+    !textHasPhrase(queryNorm, "nao")
   );
 }
 
@@ -709,7 +990,7 @@ export function formatPlaybookResponse(
     content: `${introText}\n\n💡 ${playbook.safetyNote}`,
     commands: playbook.commands,
     steps: playbook.steps,
-    recommendedPops: relatedPops,
+    recommendedPops: relatedPops.length > 0 ? relatedPops : undefined,
     suggestTicket: true,
     askResolutionFeedback: true,
     isAdvancedResponse: true,
@@ -790,8 +1071,9 @@ export async function generateAssistantReply(params: {
 }): Promise<Omit<ChatMessage, "id" | "timestamp">> {
   const { userText, history, currentPopCode } = params;
 
-  // Suporte opcional para LLM em nuvem caso configurado via variável de ambiente
-  const externalEndpoint = process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT;
+  // Conecta automaticamente na rota /api/chat (Google Gemini gratuito) com fallback transparente para o motor especialista local
+  const externalEndpoint =
+    process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT || "/api/chat";
   if (externalEndpoint) {
     try {
       const response = await fetch(externalEndpoint, {
@@ -825,7 +1107,8 @@ export async function generateAssistantReply(params: {
             content: data.content,
             steps: data.steps,
             commands: data.commands,
-            recommendedPops,
+            recommendedPops:
+              recommendedPops.length > 0 ? recommendedPops : undefined,
             suggestTicket: data.suggestTicket ?? true,
             askResolutionFeedback: true,
           };
@@ -862,18 +1145,12 @@ export async function generateAssistantReply(params: {
     ? `POP-${explicitPopMatch[1].padStart(3, "0")}`
     : null;
 
-  // Pontua Playbooks Avançados (Nível 2 / CMD / Executar)
+  // Pontua Playbooks Especialistas / Nível 2
   let bestPlaybook: AdvancedPlaybook | null = null;
   let bestPlaybookScore = 0;
 
   for (const pb of ADVANCED_PLAYBOOKS) {
-    let score = 0;
-    for (const trig of pb.triggers) {
-      const trigNorm = normalize(trig);
-      if (queryNorm.includes(trigNorm)) {
-        score += trigNorm.includes(" ") ? 20 : 13;
-      }
-    }
+    const score = scorePlaybook(pb, queryNorm);
     if (score > bestPlaybookScore) {
       bestPlaybookScore = score;
       bestPlaybook = pb;
@@ -885,15 +1162,19 @@ export async function generateAssistantReply(params: {
     if (bestPlaybook) {
       return formatPlaybookResponse(bestPlaybook);
     }
-    // Se pediu "cmd" ou "comandos avançados" de forma genérica, mostra os principais diagnósticos seguros
-    const netPlaybook = ADVANCED_PLAYBOOKS[0];
+    const netPlaybook = ADVANCED_PLAYBOOKS.find((p) => p.id === "rede-ip-dns")!;
     return formatPlaybookResponse(
       netPlaybook,
-      "Posso te guiar em diagnósticos avançados por CMD e Executar (Win + R) explicando cada passo de forma simples! Começando pelo campeão de resoluções de rede/IP (ou me diga se o problema é OneDrive, Lentidão/Cache, Certificado ou Pastas de Rede):"
+      "Posso te guiar em diagnósticos avançados por CMD e Executar (Win + R) explicando cada passo de forma simples! Começando pelo campeão de resoluções de rede/IP (ou me diga se o problema é OneDrive, Outlook, Lentidão/Cache, Certificado ou Pastas de Rede):"
     );
   }
 
-  // 3. Quando o usuário diz que "não resolveu" / "já tentei"
+  // 3. Se o assunto é explicitamente uma ferramenta fora dos 38 POPs (ex.: Outlook, Impressora, Certificado, ERP)
+  if (hasExternalSubjectWithoutDedicatedPop(queryNorm) && bestPlaybook) {
+    return formatPlaybookResponse(bestPlaybook);
+  }
+
+  // 4. Quando o usuário diz que "não resolveu" / "já tentei"
   if (isUnresolvedOrEscalationIntent(queryNorm)) {
     const refPop =
       explicitPopCode ??
@@ -901,7 +1182,6 @@ export async function generateAssistantReply(params: {
       Array.from(previouslySuggestedCodes).pop() ??
       null;
 
-    // Se ainda não mostramos o diagnóstico Nível 2 (CMD/Executar) para esse problema, oferecemos agora!
     const mappedPlaybookId = refPop ? POP_TO_PLAYBOOK_MAP[refPop] : undefined;
     const mappedPlaybook =
       bestPlaybook ??
@@ -918,7 +1198,6 @@ export async function generateAssistantReply(params: {
       );
     }
 
-    // Se já tentou até o modo avançado e não resolveu, prepara tudo mastigado para o chamado na TI!
     const hostPlaybook = ADVANCED_PLAYBOOKS.find(
       (p) => p.id === "identificar-maquina-remoto"
     );
@@ -944,24 +1223,24 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 4. Pontua todos os 38 POPs
+  // 5. Pontua todos os 38 POPs apenas com palavras de domínio real
   const scoredPops = POPS.map((pop) => ({
     pop,
     score: scorePopMatch(pop, queryNorm, tokens),
   }))
-    .filter((item) => item.score > 0)
+    .filter((item) => item.score >= 10)
     .sort((a, b) => b.score - a.score);
 
-  // Se o assunto for fora dos 38 POPs (ex: Certificado Digital, Impressora, ERP, Outlook, Hostname, Instalar Programa)
+  // Se um Playbook Especialista teve correspondência mais forte que os POPs, prioriza o Playbook
   if (
     bestPlaybook &&
-    bestPlaybookScore >= 13 &&
-    (scoredPops.length === 0 || bestPlaybookScore > scoredPops[0].score + 4)
+    bestPlaybookScore >= 15 &&
+    (scoredPops.length === 0 || bestPlaybookScore >= scoredPops[0].score)
   ) {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 5. Se encontrou POPs diretamente aderentes, entrega o POP + atalho para Modo Avançado Nível 2!
+  // 6. Se encontrou POPs genuinamente aderentes ao mesmo assunto
   const unseenMatches = scoredPops.filter(
     (item) => !previouslySuggestedCodes.has(item.pop.code)
   );
@@ -969,7 +1248,7 @@ export async function generateAssistantReply(params: {
     unseenMatches.length > 0 ? unseenMatches : scoredPops
   ).slice(0, 3);
 
-  if (topMatches.length > 0 && topMatches[0].score >= 8) {
+  if (topMatches.length > 0 && topMatches[0].score >= 12) {
     const primary = topMatches[0].pop;
     const theme = THEMES.find((t) => t.id === primary.themeId);
     const plainQuickSteps = primary.steps.slice(0, 3).map((s) => s.lead);
@@ -994,19 +1273,33 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 6. Se ainda teve aderência parcial a um Playbook Avançado
+  // 7. Se ainda teve aderência válida a um Playbook ou a um POP secundário (>= 10)
   if (bestPlaybook && bestPlaybookScore > 0) {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 7. Fallback amigável orientando tanto problemas básicos quanto avançados
+  if (topMatches.length > 0) {
+    const primary = topMatches[0].pop;
+    return {
+      role: "assistant",
+      content: `O procedimento mais próximo no catálogo é o ${primary.code}: "${primary.title}". Se sua dúvida for sobre outro sistema ou função específica, me detalhe qual programa está usando ou abra chamado direto com a TI abaixo:`,
+      steps: primary.steps.slice(0, 3).map((s) => s.lead),
+      recommendedPops: [
+        { code: primary.code, title: primary.title, goal: primary.goal },
+      ],
+      suggestTicket: true,
+      askResolutionFeedback: true,
+    };
+  }
+
+  // 8. Fallback honesto (sem inventar POPs desconexos!)
   return {
     role: "assistant",
     content:
-      "Me conte com suas palavras o que está acontecendo! Eu consigo te ajudar desde dúvidas rápidas do dia a dia até soluções avançadas passo a passo (como resetar IP/DNS no CMD, destravar OneDrive, limpar cache `%temp%`, Certificado Digital, Impressora ou pastas de rede):",
+      "Não encontrei um POP específico para essa questão exata no catálogo, e prefiro não chutar uma resposta fora de contexto! Me diga qual aplicativo aparece na tela ou qual mensagem surgiu (ex.: Outlook, Excel, OneDrive, Wi-Fi, Monitor, Certificado Digital), ou clique abaixo para falar direto com a TI:",
     steps: [
-      "Exemplos que você pode digitar: 'internet conectada mas não navega', 'resetar ip no cmd', 'onedrive processando alterações', 'certificado digital não aparece' ou 'descobrir nome do computador'.",
-      "Ou, se preferir atendimento humano imediato, clique abaixo para abrir seu chamado na TI.",
+      "Dica rápida: você pode pedir diagnósticos como 'guia grupos no outlook', 'resetar ip no cmd', 'onedrive processando alterações', 'certificado digital não aparece' ou 'erro de escala no monitor'.",
+      "Para atendimento humano rápido, clique em 'Copiar resumo' e depois em 'Abrir Chamado na TI'.",
     ],
     suggestTicket: true,
     askResolutionFeedback: false,
