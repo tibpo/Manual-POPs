@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AiSelfHelpWidget } from "@/components/AiSelfHelpWidget";
 import { CatalogView } from "@/components/CatalogView";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
@@ -413,6 +414,12 @@ export function PortalApp() {
           <span>{pdfToastText}</span>
         </div>
       )}
+
+      <AiSelfHelpWidget
+        currentPopCode={mode === "detail" ? currentPopCode : null}
+        hidden={pdfModalOpen}
+        onOpenPop={openPop}
+      />
 
       <Footer />
     </>
