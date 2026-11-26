@@ -10,25 +10,36 @@ export interface ChatActionPop {
   goal: string;
 }
 
+export interface CommandSnippet {
+  label: string;
+  whereToRun: "cmd" | "run";
+  command: string;
+  explanation: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
   steps?: string[];
+  commands?: CommandSnippet[];
   recommendedPops?: ChatActionPop[];
+  advancedPlaybookId?: string;
   suggestTicket?: boolean;
   askResolutionFeedback?: boolean;
+  isAdvancedResponse?: boolean;
   timestamp: number;
 }
 
-interface ExtraKnowledgeTopic {
+interface AdvancedPlaybook {
   id: string;
   title: string;
   triggers: string[];
+  relatedPopCodes: string[];
   intro: string;
-  steps: string[];
-  relatedPopCodes?: string[];
-  escalateNote: string;
+  commands?: CommandSnippet[];
+  steps?: string[];
+  safetyNote: string;
 }
 
 function normalize(text: string): string {
@@ -36,7 +47,7 @@ function normalize(text: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s/-]/g, " ")
+    .replace(/[^a-z0-9%\s/_.-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -67,7 +78,6 @@ const STOPWORDS = new Set([
   "esse",
   "essa",
   "este",
-  "esta",
   "fazer",
   "preciso",
   "quero",
@@ -84,11 +94,143 @@ const STOPWORDS = new Set([
   "pela",
 ]);
 
-// Base expandida para dúvidas comuns na ECOVIS BPO que vão além dos 38 POPs do site
-const EXTRA_KNOWLEDGE_BASE: ExtraKnowledgeTopic[] = [
+// Base de Diagnóstico Técnico Avançado (Nível 2) traduzida de forma simples e segura (sem exigir senha de Admin)
+const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
   {
-    id: "certificado-digital",
-    title: "Certificado Digital (A1 / A3 / Token / e-CNPJ / e-CPF)",
+    id: "rede-ip-dns",
+    title: "Reset de Rede, Renovação de IP e Limpeza de DNS via CMD",
+    triggers: [
+      "resetar ip",
+      "renovar ip",
+      "ipconfig",
+      "flushdns",
+      "dns",
+      "resetar rede",
+      "cmd rede",
+      "cmd internet",
+      "conectado sem internet",
+      "conectado mas nao navega",
+      "site nao abre",
+      "dns_probe",
+      "ping",
+      "conflito de ip",
+      "internet oscilando",
+      "sem acesso a rede",
+    ],
+    relatedPopCodes: ["POP-029", "POP-021"],
+    intro:
+      "Vamos fazer uma renovação limpa da sua conexão pelo Prompt de Comando (CMD). É super seguro, não apaga nada no computador e resolve conflitos de IP e sites que não carregam:",
+    commands: [
+      {
+        label: "Passo 1 — Limpar endereços antigos travados (DNS)",
+        whereToRun: "cmd",
+        command: "ipconfig /flushdns",
+        explanation:
+          "Apaga o cache de rotas antigas de sites que ficam presas no Windows.",
+      },
+      {
+        label: "Passo 2 — Liberar o IP atual com falha",
+        whereToRun: "cmd",
+        command: "ipconfig /release",
+        explanation:
+          "Desconecta por alguns segundos o endereço antigo que estava travado no roteador.",
+      },
+      {
+        label: "Passo 3 — Pedir um novo IP limpo ao roteador",
+        whereToRun: "cmd",
+        command: "ipconfig /renew",
+        explanation:
+          "Aguarde de 5 a 10 segundos até aparecerem os novos números de IPv4 na tela.",
+      },
+      {
+        label: "Passo 4 — Testar se a comunicação voltou",
+        whereToRun: "cmd",
+        command: "ping 8.8.8.8 -n 4",
+        explanation:
+          "Se aparecer 'Resposta de 8.8.8.8' (0% de perda), sua conexão já está funcionando!",
+      },
+    ],
+    safetyNote:
+      "Se na etapa 4 aparecer 'Esgotado o tempo limite' ou 'Falha geral', o bloqueio está no roteador/provedor externo — basta clicar em Abrir Chamado abaixo.",
+  },
+  {
+    id: "onedrive-reset-profundo",
+    title: "Redefinição Profunda (Hard Reset) do OneDrive",
+    triggers: [
+      "resetar onedrive",
+      "redefinir onedrive",
+      "onedrive /reset",
+      "processando alteracoes",
+      "onedrive travado",
+      "onedrive congelado",
+      "onedrive nao abre",
+      "sincronizacao travou",
+      "nuvem nao aparece",
+    ],
+    relatedPopCodes: ["POP-036", "POP-037", "POP-028"],
+    intro:
+      "Quando o OneDrive trava em 'Processando alterações' ou não sincroniza mesmo fechando normalmente, você pode rodar o comando oficial de redefinição da Microsoft (não apaga nenhum arquivo seu!):",
+    commands: [
+      {
+        label: "Passo 1 — Executar redefinição limpa do OneDrive",
+        whereToRun: "run",
+        command: "%localappdata%\\Microsoft\\OneDrive\\onedrive.exe /reset",
+        explanation:
+          "O ícone da nuvem perto do relógio vai sumir por cerca de 1 minuto enquanto reconstrói o catálogo sem apagar documentos.",
+      },
+      {
+        label: "Passo 2 — Reabrir o OneDrive (caso não volte sozinho após 1 min)",
+        whereToRun: "run",
+        command: "%localappdata%\\Microsoft\\OneDrive\\onedrive.exe",
+        explanation:
+          "Religa a nuvem na barra de tarefas e retoma a sincronização limpa.",
+      },
+    ],
+    safetyNote:
+      "Fique tranquilo: todos os seus arquivos locais e da nuvem permanecem intactos.",
+  },
+  {
+    id: "limpeza-profunda-temp",
+    title: "Limpeza Avançada de Cache (%temp% e Limpador Nativo)",
+    triggers: [
+      "%temp%",
+      "pasta temp",
+      "cleanmgr",
+      "limpeza profunda",
+      "limpar cache",
+      "muito lento",
+      "travando tudo",
+      "disco cheio ainda",
+      "memoria cheia",
+    ],
+    relatedPopCodes: ["POP-001", "POP-002", "POP-004", "POP-030"],
+    intro:
+      "Além da limpeza básica do Windows, você pode limpar diretamente o cache bruto dos aplicativos abertos — excelente quando o notebook continua pesado ou o SSD segue cheio:",
+    commands: [
+      {
+        label: "Passo 1 — Abrir pasta de temporários ocultos do usuário",
+        whereToRun: "run",
+        command: "%temp%",
+        explanation:
+          "Na pasta que abrir, aperte Ctrl + A (selecionar tudo), aperte Delete e, se avisar que algum arquivo está em uso, marque 'Fazer isso para todos' e clique em Ignorar.",
+      },
+      {
+        label: "Passo 2 — Executar o Limpador Clássico do Disco C:",
+        whereToRun: "run",
+        command: "cleanmgr",
+        explanation:
+          "Selecione a unidade C:, marque Arquivos Temporários / Miniaturas / Lixeira e clique em OK.",
+      },
+    ],
+    steps: [
+      "Em seguida, vá em Iniciar > Ligar/Desligar > Reiniciar (nunca apenas Desligar) para zerar a memória RAM acumulada.",
+    ],
+    safetyNote:
+      "Esses comandos afetam apenas rascunhos temporários de sistema — nada das suas pastas Documentos, Área de Trabalho ou Downloads é tocado.",
+  },
+  {
+    id: "certificado-ssl-avancado",
+    title: "Destravar Certificado Digital (A1/A3), SSL, e-CAC e SEFAZ",
     triggers: [
       "certificado",
       "token",
@@ -104,25 +246,156 @@ const EXTRA_KNOWLEDGE_BASE: ExtraKnowledgeTopic[] = [
       "sefaz",
       "assinador",
       "serpro",
-      "valid",
-      "certisign",
-      "soluti",
-    ],
-    intro:
-      "Esse tema não está nos 38 POPs padrão, mas separei as verificações rápidas para Certificado Digital:",
-    steps: [
-      "Se for Token/Cartão A3: desconecte e conecte em outra porta USB direta do notebook (evite hubs USB) e verifique se o gerenciador SafeNet/TokenAdmin reconhece o dispositivo.",
-      "Feche todas as janelas do navegador, abra uma janela normal (não anônima) ou teste no Microsoft Edge / Google Chrome selecionando o certificado correto no aviso.",
-      "Se o certificado for A1 (arquivo) e aparecer vencido ou não listado no navegador, pressione Win + R, digite certmgr.msc > Pessoal > Certificados para conferir a validade.",
-      "Caso precise instalar um novo certificado A1 ou renovar permissão, abra chamado informando o nome da empresa/cliente e seu patrimônio.",
+      "ssl",
+      "err_ssl",
+      "certmgr",
+      "inetcpl",
     ],
     relatedPopCodes: ["POP-018", "POP-034"],
-    escalateNote:
-      "Se o certificado estiver vencido ou pedir senha de administrador para instalar cadeia/driver, acione a TI pelo botão abaixo.",
+    intro:
+      "Quando sites do governo (e-CAC, Receita, SEFAZ, Conectividade) param de pedir ou reconhecer seu Certificado Digital, limpar o Estado SSL do Windows resolve na maioria das vezes:",
+    commands: [
+      {
+        label: "Passo 1 — Limpar o Estado SSL travado no Windows",
+        whereToRun: "run",
+        command: "inetcpl.cpl",
+        explanation:
+          "Na janelinha que abrir, clique na aba 'Conteúdo', clique no botão 'Limpar estado SSL' e dê OK. Depois feche TODAS as janelas do navegador e abra de novo.",
+      },
+      {
+        label: "Passo 2 — Conferir se o certificado está listado e dentro da validade",
+        whereToRun: "run",
+        command: "certmgr.msc",
+        explanation:
+          "Abra a pasta 'Pessoal' > 'Certificados' à esquerda e confira a coluna 'Data de Expiração'.",
+      },
+    ],
+    steps: [
+      "Se for Token USB (A3), conecte direto na porta USB do notebook (sem adaptador/hub) antes de abrir o navegador.",
+    ],
+    safetyNote:
+      "Se o certificado estiver vencido ou precisar instalar um novo arquivo .pfx com senha da empresa, abra chamado com a TI.",
   },
   {
-    id: "impressora-scanner",
-    title: "Impressora ou Scanner não funciona",
+    id: "rede-corporativa-gpupdate",
+    title: "Recarregar Pastas de Rede, Políticas e Sistemas Internos / ERP",
+    triggers: [
+      "pasta de rede",
+      "mapeamento",
+      "unidade z",
+      "servidor",
+      "gpupdate",
+      "erp",
+      "dominio",
+      "sistema interno",
+      "acesso negado",
+      "bloqueado",
+      "403",
+      "500",
+      "ncpa",
+      "vpn",
+    ],
+    relatedPopCodes: ["POP-021", "POP-034", "POP-033"],
+    intro:
+      "Se as pastas da rede sumiram, deram erro de caminho ou o sistema interno não carrega mesmo conectado na VPN/escritório, force a atualização das credenciais de rede:",
+    commands: [
+      {
+        label: "Passo 1 — Atualizar políticas e mapeamentos corporativos",
+        whereToRun: "cmd",
+        command: "gpupdate /force",
+        explanation:
+          "Sincroniza suas permissões e pastas de rede com o servidor (aguarde aparecer 'A atualização da política foi concluída com êxito').",
+      },
+      {
+        label: "Passo 2 — Conferir adaptadores de VPN e Wi-Fi",
+        whereToRun: "run",
+        command: "ncpa.cpl",
+        explanation:
+          "Mostra lado a lado se o adaptador da VPN e o Wi-Fi estão realmente conectados ou desativados.",
+      },
+    ],
+    steps: [
+      "Para sistemas web internos dando erro de sessão/403, pressione Ctrl + Shift + N no navegador para testar em guia anônima sem cache antigo.",
+    ],
+    safetyNote:
+      "Caso sua senha de rede ou usuário do sistema tenha bloqueado por tentativas, acione a TI pelo botão abaixo para desbloqueio imediato.",
+  },
+  {
+    id: "outlook-office-safe",
+    title: "Recuperar Outlook ou Excel Travando (Modo de Segurança)",
+    triggers: [
+      "outlook",
+      "caixa de entrada",
+      "nao envia",
+      "nao recebe",
+      "email preso",
+      "excel",
+      "word",
+      "planilha travando",
+      "outlook nao abre",
+      "modo de seguranca",
+      "/safe",
+    ],
+    relatedPopCodes: ["POP-031", "POP-007"],
+    intro:
+      "Quando o Outlook fica preso em 'Processando/Carregando perfil' ou o Excel congela ao abrir planilhas, inicie em Modo de Segurança para isolar suplementos com falha:",
+    commands: [
+      {
+        label: "Opção A — Abrir o Outlook destravado (Modo Seguro)",
+        whereToRun: "run",
+        command: "outlook.exe /safe",
+        explanation:
+          "Clique em OK na caixa de perfil. Se abrir normalmente, verifique no rodapé se 'Trabalhar Offline' não está ativado na aba Enviar/Receber.",
+      },
+      {
+        label: "Opção B — Abrir o Excel limpo sem suplementos pesados",
+        whereToRun: "run",
+        command: "excel.exe /safe",
+        explanation:
+          "Abre o Excel em modo leve para você conseguir abrir, recuperar e salvar sua planilha sem travar.",
+      },
+    ],
+    safetyNote:
+      "Persistindo o travamento fora do modo seguro, a TI pode executar o Reparo Rápido do Microsoft 365 remotamente.",
+  },
+  {
+    id: "teams-audio-camera-reparo",
+    title: "Reparar Microsoft Teams, Câmera e Microfone",
+    triggers: [
+      "teams",
+      "camera",
+      "webcam",
+      "compartilhar tela",
+      "reuniao",
+      "microfone nao funciona",
+      "sem som no teams",
+      "reparar teams",
+    ],
+    relatedPopCodes: ["POP-027", "POP-037"],
+    intro:
+      "Se o Microsoft Teams está com tela branca, falhando compartilhamento ou não detecta microfone/câmera, use os atalhos diretos de reparo do Windows:",
+    commands: [
+      {
+        label: "Passo 1 — Abrir painel de Reparo do aplicativo Teams",
+        whereToRun: "run",
+        command: "ms-settings:appsfeatures",
+        explanation:
+          "Na busca da lista, digite 'Teams', clique nos três pontinhos (...) > Opções avançadas > clique em 'Reparar' (não apaga suas conversas).",
+      },
+      {
+        label: "Passo 2 — Verificar bloqueio de privacidade do Microfone",
+        whereToRun: "run",
+        command: "ms-settings:privacy-microphone",
+        explanation:
+          "Confirme se 'Acesso ao microfone' e 'Permitir que os aplicativos acessem o microfone' estão Ativados.",
+      },
+    ],
+    safetyNote:
+      "Dica extra: em chamadas de vídeo lentas, clique na nuvem do OneDrive > Engrenagem > Pausar sincronização por 2 horas.",
+  },
+  {
+    id: "impressora-fila-spooler",
+    title: "Destravar Fila de Impressão e Scanner",
     triggers: [
       "impressora",
       "imprimir",
@@ -131,53 +404,106 @@ const EXTRA_KNOWLEDGE_BASE: ExtraKnowledgeTopic[] = [
       "escanear",
       "digitalizar",
       "fila de impressao",
-      "papel",
-      "toner",
-    ],
-    intro:
-      "Problemas de impressão/digitalização não possuem um POP exclusivo no catálogo, mas você pode testar este checklist rápido:",
-    steps: [
-      "Confirme se você está conectado na rede Wi-Fi corporativa correta do escritório (impressoras de rede não funcionam no 4G ou em redes de visitantes).",
-      "Em Configurações > Bluetooth e dispositivos > Impressoras e scanners, verifique se a impressora aparece como 'Offline' ou com documentos presos na fila.",
-      "Reinicie o Windows pelo menu Iniciar > Reiniciar (isso destrava o serviço de Spooler de impressão na maioria dos casos).",
+      "documento preso",
+      "spooler",
     ],
     relatedPopCodes: ["POP-005", "POP-029"],
-    escalateNote:
-      "Se precisar mapear uma nova impressora de setor ou se houver erro físico/toner no equipamento, abra chamado informando o setor/andar.",
+    intro:
+      "Quando você manda imprimir e nada sai (ou um documento antigo trava toda a fila), acesse o painel clássico de filas:",
+    commands: [
+      {
+        label: "Abrir Gerenciador Clássico de Impressoras e Filas",
+        whereToRun: "run",
+        command: "control printers",
+        explanation:
+          "Dê dois cliques no ícone da impressora para ver a fila, clique em 'Impressora' no topo e escolha 'Cancelar todos os documentos' se houver itens travados.",
+      },
+    ],
+    steps: [
+      "Confirme se o notebook está conectado no Wi-Fi corporativo do escritório (impressoras internas não respondem pelo 4G ou rede visitante).",
+      "Se a impressora aparecer esmaecida ('Offline'), reinicie o Windows em Iniciar > Reiniciar.",
+    ],
+    safetyNote:
+      "Para instalar uma nova impressora de setor no seu notebook, abra um chamado informando o modelo ou o setor.",
   },
   {
-    id: "sistemas-erp-acesso",
-    title: "Sistemas Internos, ERP, Domínio, Senha Bloqueada ou Erro de Acesso",
+    id: "identificar-maquina-remoto",
+    title: "Descobrir Nome da Máquina (Hostname), Usuário e IP para Suporte",
     triggers: [
-      "erp",
-      "dominio",
-      "sistema",
-      "acesso negado",
-      "bloqueado",
-      "permissao",
-      "login",
-      "portal",
-      "403",
-      "500",
-      "502",
-      "sessao expirada",
-      "citrix",
-      "remoto",
-      "area de trabalho remota",
-      "rdp",
-      "pasta de rede",
-      "mapeamento",
+      "hostname",
+      "nome do computador",
+      "nome da maquina",
+      "qual meu ip",
+      "meu ip",
+      "whoami",
+      "patrimonio",
+      "acesso remoto",
     ],
+    relatedPopCodes: ["POP-033", "POP-034"],
     intro:
-      "Para falhas em sistemas internos, ERP ou pastas de rede, realize estes testes antes de acionar o suporte:",
-    steps: [
-      "Se estiver fora do escritório (home office/cliente), confirme se a VPN corporativa está conectada — sem ela, pastas de rede e sistemas internos não abrem.",
-      "Se for sistema web dando erro de login ou tela em branco, teste abrir em uma janela anônima (Ctrl + Shift + N) para descartar cache corrompido.",
-      "Se sua conta bloqueou por tentativas de senha ou você precisa de liberação de acesso/perfil, somente a equipe de TI pode desbloquear.",
+      "Precisa informar a identificação exata do seu notebook para o analista da TI conectar remotamente? Rode estes comandos rápidos:",
+    commands: [
+      {
+        label: "Ver o Nome do Computador (Hostname) na rede",
+        whereToRun: "cmd",
+        command: "hostname",
+        explanation:
+          "Exibe em uma linha o código oficial da sua máquina (basta copiar e colar no chamado).",
+      },
+      {
+        label: "Ver seu usuário de rede e domínio",
+        whereToRun: "cmd",
+        command: "whoami",
+        explanation: "Mostra exatamente com qual conta corporativa o Windows está logado.",
+      },
+      {
+        label: "Ver seu endereço IPv4 atual",
+        whereToRun: "cmd",
+        command: "ipconfig",
+        explanation:
+          "Procure a linha 'Endereço IPv4' para informar à equipe técnica se solicitado.",
+      },
     ],
-    relatedPopCodes: ["POP-021", "POP-034", "POP-033"],
-    escalateNote:
-      "Tire um print da tela inteira (Win + Shift + S) mostrando o horário e o erro exato e anexe no chamado.",
+    safetyNote:
+      "Com o Hostname em mãos, o atendimento remoto da TI é muito mais rápido!",
+  },
+  {
+    id: "video-apps-nativos",
+    title: "Resetar Driver de Vídeo e Destravar Captura de Tela / Apps do Windows",
+    triggers: [
+      "wsreset",
+      "print nao funciona",
+      "captura nao abre",
+      "ferramenta de captura",
+      "tela piscando",
+      "driver de video",
+      "monitor cortado",
+      "escala",
+    ],
+    relatedPopCodes: ["POP-038", "POP-025", "POP-026", "POP-035"],
+    intro:
+      "Se a imagem da tela falhou ou a Ferramenta de Captura (Win + Shift + S) parou de abrir, faça este reset seguro de interface:",
+    commands: [
+      {
+        label: "Abrir Configurações de Exibição Avançada (Ajustar p/ 50 Hz)",
+        whereToRun: "run",
+        command: "ms-settings:display",
+        explanation:
+          "Atalho direto para Sistema > Tela, onde você pode ajustar Resolução e Exibição Avançada (< 59Hz).",
+      },
+      {
+        label: "Restaurar cache de aplicativos nativos do Windows",
+        whereToRun: "run",
+        command: "wsreset.exe",
+        explanation:
+          "Uma janela preta abrirá por ~10 segundos limpando o cache dos utilitários nativos (Captura, Fotos, Calculadora) sem apagar arquivos.",
+      },
+    ],
+    steps: [
+      "Para reiniciar o driver de vídeo na hora sem fechar seus programas abertos, aperte juntas as teclas: Win + Ctrl + Shift + B (a tela piscará 1 vez e voltará limpa).",
+    ],
+    safetyNote:
+      "Se o monitor externo continuar sem sinal, teste reconectar o cabo HDMI/USB-C nas duas pontas.",
   },
   {
     id: "instalacao-admin",
@@ -191,98 +517,76 @@ const EXTRA_KNOWLEDGE_BASE: ExtraKnowledgeTopic[] = [
       "admin",
       "uac",
       "pede senha",
-      "atualizar programa",
       "licenca",
     ],
-    intro:
-      "Por política de segurança da ECOVIS BPO, a instalação de softwares e permissões de Administrador são realizadas pela TI:",
-    steps: [
-      "Nunca baixe instaladores de sites não oficiais para evitar riscos de malware.",
-      "Abra um chamado informando: (1) nome exato do programa, (2) finalidade no trabalho e (3) etiqueta de patrimônio/hostname do seu notebook.",
-      "A equipe técnica pode conectar remotamente e concluir a instalação em poucos minutos.",
-    ],
     relatedPopCodes: ["POP-033", "POP-020"],
-    escalateNote:
-      "Use o botão abaixo para copiar o resumo e abrir a solicitação diretamente no portal da TI.",
-  },
-  {
-    id: "outlook-email-teams",
-    title: "Problemas no Outlook, E-mail ou Microsoft Teams",
-    triggers: [
-      "outlook",
-      "caixa de entrada",
-      "nao envia",
-      "nao recebe",
-      "assinatura",
-      "teams",
-      "camera",
-      "webcam",
-      "compartilhar tela",
-      "reuniao travando",
-    ],
     intro:
-      "Para falhas no Outlook ou Microsoft Teams, siga este roteiro prático:",
-    steps: [
-      "Se o Outlook não sincroniza e-mails: verifique no rodapé direito da janela se aparece 'Trabalhando Offline' (na aba Enviar/Receber, desmarque 'Trabalhar Offline') e teste o acesso via navegador (Outlook Web) para confirmar a internet.",
-      "Se o Teams estiver travando ou sem câmera/áudio: encerre completamente o Teams clicando com o botão direito no ícone dele perto do relógio > Sair, e abra novamente.",
-      "Durante reuniões pesadas com vídeo, pause o OneDrive por 2 horas para liberar banda de internet.",
+      "Por segurança corporativa na ECOVIS BPO, contas de usuário não possuem senha de Administrador para impedir que malwares se instalem sozinhos.",
+    commands: [
+      {
+        label: "Descobrir o Hostname do seu notebook para agilizar a instalação",
+        whereToRun: "cmd",
+        command: "hostname",
+        explanation:
+          "Copie o nome exibido e informe no chamado junto com o nome do programa que precisa instalar.",
+      },
     ],
-    relatedPopCodes: ["POP-027", "POP-037", "POP-031"],
-    escalateNote:
-      "Persistindo o erro de sincronização ou perfil no Outlook/Teams, abra um chamado para reparo do pacote Office.",
+    steps: [
+      "Clique em 'Copiar resumo p/ chamado' abaixo e informe o software desejado + motivo de uso.",
+      "A TI conectará remotamente para validar e instalar com a credencial administrativa.",
+    ],
+    safetyNote:
+      "Nunca baixe instaladores alternativos ('portáteis' ou de sites de terceiros).",
   },
   {
-    id: "perifericos-teclado-mouse",
-    title: "Teclado, Mouse, Bluetooth ou Periféricos com Falha",
-    triggers: [
-      "mouse",
-      "teclado",
-      "tecla",
-      "bluetooth",
-      "usb nao reconhece",
-      "headset",
-      "fone",
-      "touchpad",
-      "duplo clique",
-      "acento",
-      "desconfigurado",
-    ],
-    intro:
-      "Para falhas em teclado, mouse ou acessórios conectados ao notebook:",
-    steps: [
-      "Se o teclado estiver trocando acentos/pontuação: pressione Win + Espaço para alternar o idioma de entrada para 'Português (Brasil ABNT2)'.",
-      "Se for mouse/headset USB: teste em outra porta USB direta do notebook e desconecte hubs externos.",
-      "Se for Bluetooth: desligue e ligue o Bluetooth nas Configurações Rápidas (canto inferior direito) e verifique a carga/pilha do acessório.",
-    ],
-    relatedPopCodes: ["POP-010", "POP-027", "POP-005"],
-    escalateNote:
-      "Caso alguma tecla física tenha parado de funcionar ou o acessório esteja com defeito físico, solicite substituição/avaliação à TI.",
-  },
-  {
-    id: "tela-azul-erro-critico",
-    title: "Tela Azul (BSOD) ou Desligamento Repentino",
+    id: "tela-azul-bitlocker",
+    title: "Tela Azul (BSOD), BitLocker ou Notebook Não Inicia",
     triggers: [
       "tela azul",
       "bsod",
-      "desligou sozinho",
-      "reiniciou sozinho",
-      "erro critico",
-      "reparo automatico",
       "bitlocker",
       "chave de recuperacao",
+      "reparo automatico",
+      "desligou sozinho",
+      "erro critico",
     ],
+    relatedPopCodes: ["POP-032", "POP-014", "POP-034"],
     intro:
-      "Atenção: falhas de Tela Azul, Reparo Automático ou pedido de chave BitLocker exigem cuidado:",
+      "Falhas críticas como Tela Azul ou solicitação de Chave de Recuperação do BitLocker exigem preservação das evidências:",
     steps: [
-      "Se pedir Chave de Recuperação do BitLocker: não formate nem tente restaurar por conta própria — tire uma foto da tela com o celular mostrando o ID da chave e acione a TI imediatamente.",
-      "Se o notebook desligou sozinho durante o uso: verifique se a base estava abafada/superaquecendo e se o carregador original está firme na tomada.",
-      "Anote o horário exato da queda para o analista consultar o Visualizador de Eventos do Windows.",
+      "Se aparecer tela azul pedindo Chave BitLocker: NÃO clique em restaurar/formatar — tire uma foto nítida da tela com seu celular mostrando o 'ID da Chave' e acione a TI.",
+      "Se o notebook sofreu uma Tela Azul e reiniciou: anote o horário exato do ocorrido para o analista inspecionar os logs internos.",
+      "Mantenha o equipamento conectado à fonte original sobre superfície plana e arejada.",
     ],
-    relatedPopCodes: ["POP-014", "POP-032", "POP-034"],
-    escalateNote:
-      "Acione a TI com foto/print do código de parada exibido na tela para diagnóstico de hardware ou driver.",
+    safetyNote:
+      "Abra chamado imediatamente anexando a foto da tela para atendimento prioritário.",
   },
 ];
+
+// Mapa direto de qual Playbook Avançado sugerir quando um POP específico não resolver!
+const POP_TO_PLAYBOOK_MAP: Record<string, string> = {
+  "POP-001": "limpeza-profunda-temp",
+  "POP-002": "limpeza-profunda-temp",
+  "POP-003": "limpeza-profunda-temp",
+  "POP-004": "limpeza-profunda-temp",
+  "POP-006": "limpeza-profunda-temp",
+  "POP-016": "rede-corporativa-gpupdate",
+  "POP-018": "certificado-ssl-avancado",
+  "POP-021": "rede-ip-dns",
+  "POP-025": "video-apps-nativos",
+  "POP-026": "video-apps-nativos",
+  "POP-027": "teams-audio-camera-reparo",
+  "POP-028": "onedrive-reset-profundo",
+  "POP-029": "rede-ip-dns",
+  "POP-030": "limpeza-profunda-temp",
+  "POP-031": "outlook-office-safe",
+  "POP-033": "identificar-maquina-remoto",
+  "POP-034": "identificar-maquina-remoto",
+  "POP-035": "video-apps-nativos",
+  "POP-036": "onedrive-reset-profundo",
+  "POP-037": "onedrive-reset-profundo",
+  "POP-038": "video-apps-nativos",
+};
 
 function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): number {
   let score = 0;
@@ -309,11 +613,38 @@ function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): numbe
     else if (stem.length >= 4 && titleNorm.includes(stem)) score += 5;
 
     if (goalNorm.includes(token)) score += 5;
-
     if (stepsNorm.includes(token)) score += 2;
   }
 
   return score;
+}
+
+function isAdvancedExplicitRequest(queryNorm: string): boolean {
+  const advSignals = [
+    "cmd",
+    "prompt",
+    "terminal",
+    "executar",
+    "win r",
+    "win+r",
+    "avancad",
+    "comando",
+    "ipconfig",
+    "flushdns",
+    "gpupdate",
+    "cleanmgr",
+    "%temp%",
+    "resetar ip",
+    "renovar ip",
+    "resetar onedrive",
+    "redefinir onedrive",
+    "hostname",
+    "whoami",
+    "ping",
+    "certmgr",
+    "inetcpl",
+  ];
+  return advSignals.some((s) => queryNorm.includes(s));
 }
 
 function isUnresolvedOrEscalationIntent(queryNorm: string): boolean {
@@ -335,7 +666,7 @@ function isUnresolvedOrEscalationIntent(queryNorm: string): boolean {
     "atendente",
     "humano",
     "continua igual",
-    "ainda esta",
+    "ainda nao",
   ];
   return patterns.some((p) => queryNorm.includes(p));
 }
@@ -360,6 +691,39 @@ function isPositiveConfirmation(queryNorm: string): boolean {
   );
 }
 
+export function formatPlaybookResponse(
+  playbook: AdvancedPlaybook,
+  prefixNote?: string
+): Omit<ChatMessage, "id" | "timestamp"> {
+  const relatedPops = playbook.relatedPopCodes
+    .map((code) => POPS.find((p) => p.code === code))
+    .filter((p): p is PopItem => Boolean(p))
+    .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
+
+  const introText = prefixNote
+    ? `${prefixNote}\n\n${playbook.intro}`
+    : `${playbook.intro}`;
+
+  return {
+    role: "assistant",
+    content: `${introText}\n\n💡 ${playbook.safetyNote}`,
+    commands: playbook.commands,
+    steps: playbook.steps,
+    recommendedPops: relatedPops,
+    suggestTicket: true,
+    askResolutionFeedback: true,
+    isAdvancedResponse: true,
+  };
+}
+
+export function getPlaybookById(
+  playbookId: string
+): Omit<ChatMessage, "id" | "timestamp"> | null {
+  const found = ADVANCED_PLAYBOOKS.find((p) => p.id === playbookId);
+  if (!found) return null;
+  return formatPlaybookResponse(found);
+}
+
 export function buildTicketSummary(
   messages: ChatMessage[],
   currentPopCode: string | null
@@ -380,6 +744,12 @@ export function buildTicketSummary(
     )
   );
 
+  const executedCommands = Array.from(
+    new Set(
+      messages.flatMap((m) => (m.commands ?? []).map((c) => c.command))
+    )
+  );
+
   const mainIssue =
     userTexts.length > 0
       ? userTexts.join(" | ")
@@ -388,50 +758,29 @@ export function buildTicketSummary(
   const checkedPops =
     suggestedCodes.length > 0
       ? suggestedCodes.join(", ")
-      : "Nenhum POP específico aplicável ao caso";
+      : "Nenhum POP específico aplicável";
 
-  return [
+  const lines = [
     "Resumo de Pré-Atendimento (Assistente IA • Portal POPs TI)",
-    `• Relato / Dúvida: ${mainIssue}`,
-    `• POPs já verificados: ${checkedPops}`,
-    "• Patrimônio / Hostname do equipamento: [informar aqui]",
+    `• Relato / Sintoma: ${mainIssue}`,
+    `• POPs consultados: ${checkedPops}`,
+  ];
+
+  if (executedCommands.length > 0) {
+    lines.push(
+      `• Diagnósticos avançados orientados (CMD/Executar): ${executedCommands.join(
+        " ; "
+      )}`
+    );
+  }
+
+  lines.push(
+    "• Patrimônio / Hostname (rode 'hostname' no CMD): [informar aqui]",
     "• Impacto no trabalho: [Parcial / Impedido de trabalhar]",
-    "• Print do erro (Win + Shift + S): [anexar no chamado]",
-  ].join("\n");
-}
+    "• Print do erro (Win + Shift + S): [anexar no chamado]"
+  );
 
-function getContextualLevel2Advice(popCode: string): string[] {
-  const pop = POPS.find((p) => p.code === popCode);
-  if (!pop) {
-    return [
-      "Salve seus arquivos abertos e execute Iniciar > Ligar/Desligar > Reiniciar (evite apenas Desligar).",
-      "Capture um print da tela inteira com Win + Shift + S mostrando o erro ou sintoma.",
-      "Anote o número de patrimônio/hostname do notebook para que a TI possa acessar remotamente.",
-    ];
-  }
-
-  switch (pop.themeId) {
-    case 1:
-      return [
-        "Confirme se você usou Iniciar > Reiniciar (e não Desligar) e se há pelo menos 15% livre no Disco C:.",
-        "Abra o Gerenciador de Tarefas (Ctrl + Shift + Esc > aba Desempenho) e tire um print (Win + Shift + S) para anexar no chamado — isso mostra à TI se o gargalo é RAM, SSD ou CPU.",
-      ];
-    case 3:
-      return [
-        "Se houver qualquer suspeita de clique em link malicioso ou vazamento de credencial, mantenha o Wi-Fi desligado e comunique a TI imediatamente.",
-        "Não apague e-mails ou mensagens suspeitas antes da análise técnica; tire print da tela para evidência.",
-      ];
-    case 4:
-      return [
-        "Se o erro for no OneDrive e continuar após reiniciar o aplicativo, confira se o arquivo não está aberto por outro colega simultaneamente ou com caminho muito longo.",
-        "Se for monitor externo piscando mesmo em 50 Hz, teste outro cabo HDMI/USB-C ou outra entrada do monitor e informe no chamado.",
-      ];
-    default:
-      return [
-        "Capture um print completo da tela de erro usando Win + Shift + S.",
-        "Informe o número de patrimônio do notebook ao abrir o chamado para agilizar o acesso remoto da TI.",
-      ];
-  }
+  return lines.join("\n");
 }
 
 export async function generateAssistantReply(params: {
@@ -441,7 +790,7 @@ export async function generateAssistantReply(params: {
 }): Promise<Omit<ChatMessage, "id" | "timestamp">> {
   const { userText, history, currentPopCode } = params;
 
-  // Hook opcional caso a TI configure futuramente um endpoint externo (NEXT_PUBLIC_AI_CHAT_ENDPOINT)
+  // Suporte opcional para LLM em nuvem caso configurado via variável de ambiente
   const externalEndpoint = process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT;
   if (externalEndpoint) {
     try {
@@ -461,6 +810,7 @@ export async function generateAssistantReply(params: {
         const data = (await response.json()) as {
           content?: string;
           steps?: string[];
+          commands?: CommandSnippet[];
           popCodes?: string[];
           suggestTicket?: boolean;
         };
@@ -474,14 +824,15 @@ export async function generateAssistantReply(params: {
             role: "assistant",
             content: data.content,
             steps: data.steps,
+            commands: data.commands,
             recommendedPops,
             suggestTicket: data.suggestTicket ?? true,
-            askResolutionFeedback: recommendedPops.length > 0,
+            askResolutionFeedback: true,
           };
         }
       }
     } catch {
-      // Fallback transparente para o motor especialista integrado
+      // Continua automaticamente no motor especialista local
     }
   }
 
@@ -490,29 +841,59 @@ export async function generateAssistantReply(params: {
     .split(" ")
     .filter((t) => t.length >= 2 && !STOPWORDS.has(t));
 
-  // 1. Confirmação positiva ("resolveu!", "deu certo", "obrigado")
+  // 1. Confirmação positiva
   if (isPositiveConfirmation(queryNorm)) {
     return {
       role: "assistant",
       content:
-        "Excelente! Fico feliz que tenha resolvido. Se surgir qualquer outra dúvida ou precisar consultar outro procedimento, é só mandar aqui!",
+        "Perfeito! Que ótimo que deu certo. Sempre que precisar de um passo a passo rápido ou comando de diagnóstico, estou por aqui!",
       suggestTicket: false,
       askResolutionFeedback: false,
     };
   }
 
-  // POPs já recomendados anteriormente na conversa para evitar repetição em loop
   const previouslySuggestedCodes = new Set(
     history.flatMap((m) => (m.recommendedPops ?? []).map((p) => p.code))
   );
+  const alreadySentAdvanced = history.some((m) => m.isAdvancedResponse);
 
-  // Detecta menção explícita a um POP (ex.: "POP-036")
   const explicitPopMatch = userText.toUpperCase().match(/POP[- ]?(\d{1,3})/);
   const explicitPopCode = explicitPopMatch
     ? `POP-${explicitPopMatch[1].padStart(3, "0")}`
     : null;
 
-  // 2. Caso o usuário diga que "não resolveu", "já tentei", "não achei no site" ou peça chamado
+  // Pontua Playbooks Avançados (Nível 2 / CMD / Executar)
+  let bestPlaybook: AdvancedPlaybook | null = null;
+  let bestPlaybookScore = 0;
+
+  for (const pb of ADVANCED_PLAYBOOKS) {
+    let score = 0;
+    for (const trig of pb.triggers) {
+      const trigNorm = normalize(trig);
+      if (queryNorm.includes(trigNorm)) {
+        score += trigNorm.includes(" ") ? 20 : 13;
+      }
+    }
+    if (score > bestPlaybookScore) {
+      bestPlaybookScore = score;
+      bestPlaybook = pb;
+    }
+  }
+
+  // 2. Se o usuário pediu explicitamente algo avançado (CMD, resetar IP, %temp%, gpupdate, etc.)
+  if (isAdvancedExplicitRequest(queryNorm)) {
+    if (bestPlaybook) {
+      return formatPlaybookResponse(bestPlaybook);
+    }
+    // Se pediu "cmd" ou "comandos avançados" de forma genérica, mostra os principais diagnósticos seguros
+    const netPlaybook = ADVANCED_PLAYBOOKS[0];
+    return formatPlaybookResponse(
+      netPlaybook,
+      "Posso te guiar em diagnósticos avançados por CMD e Executar (Win + R) explicando cada passo de forma simples! Começando pelo campeão de resoluções de rede/IP (ou me diga se o problema é OneDrive, Lentidão/Cache, Certificado ou Pastas de Rede):"
+    );
+  }
+
+  // 3. Quando o usuário diz que "não resolveu" / "já tentei"
   if (isUnresolvedOrEscalationIntent(queryNorm)) {
     const refPop =
       explicitPopCode ??
@@ -520,51 +901,50 @@ export async function generateAssistantReply(params: {
       Array.from(previouslySuggestedCodes).pop() ??
       null;
 
-    const level2Steps = refPop
-      ? getContextualLevel2Advice(refPop)
-      : [
-          "Execute uma reinicialização limpa pelo menu Iniciar > Ligar/Desligar > Reiniciar (caso ainda não tenha feito).",
-          "Tire um print da tela inteira com Win + Shift + S mostrando a mensagem ou comportamento do erro.",
-          "Clique em 'Copiar resumo p/ chamado' abaixo para já levar todo o histórico preenchido ao portal da TI.",
-        ];
+    // Se ainda não mostramos o diagnóstico Nível 2 (CMD/Executar) para esse problema, oferecemos agora!
+    const mappedPlaybookId = refPop ? POP_TO_PLAYBOOK_MAP[refPop] : undefined;
+    const mappedPlaybook =
+      bestPlaybook ??
+      (mappedPlaybookId
+        ? ADVANCED_PLAYBOOKS.find((p) => p.id === mappedPlaybookId) ?? null
+        : null);
 
-    const supportPops = ["POP-034", "POP-033"]
-      .filter((c) => c !== refPop)
-      .map((code) => POPS.find((p) => p.code === code))
-      .filter((p): p is PopItem => Boolean(p))
-      .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
+    if (mappedPlaybook && !alreadySentAdvanced) {
+      return formatPlaybookResponse(
+        mappedPlaybook,
+        refPop
+          ? `Como o passo a passo básico do ${refPop} não foi suficiente, vamos subir para um diagnóstico um pouco mais avançado (mas bem simples de aplicar):`
+          : "Entendi! Antes de você precisar esperar pelo atendimento de um chamado, podemos tentar este procedimento técnico Nível 2 explicado passo a passo:"
+      );
+    }
 
+    // Se já tentou até o modo avançado e não resolveu, prepara tudo mastigado para o chamado na TI!
+    const hostPlaybook = ADVANCED_PLAYBOOKS.find(
+      (p) => p.id === "identificar-maquina-remoto"
+    );
     return {
       role: "assistant",
-      content: refPop
-        ? `Entendi! Como o procedimento ${refPop} não resolveu por completo, vamos fazer uma checagem complementar e já deixar tudo pronto para o atendimento técnico da TI:`
-        : "Sem problemas! Quando o procedimento padrão não resolve ou não cobre seu caso específico, recomendo estes passos finais antes de encaminhar para a equipe técnica:",
-      steps: level2Steps,
-      recommendedPops: supportPops,
+      content:
+        "Você já realizou todas as verificações recomendadas (inclusive de nível avançado)! Nesse caso, o problema exige intervenção administrativa da TI.\n\nPara o analista resolver bem rápido no acesso remoto, descubra o nome da sua máquina com o comando abaixo, clique em 'Copiar resumo' e abra o chamado:",
+      commands: hostPlaybook ? [hostPlaybook.commands![0]] : undefined,
+      steps: [
+        "Tire um print da tela inteira com Win + Shift + S mostrando o erro.",
+        "Clique em 'Copiar resumo' abaixo — ele já inclui os POPs e comandos que você testou para você não precisar digitar tudo de novo!",
+      ],
+      recommendedPops: [
+        {
+          code: "POP-033",
+          title: "Como abrir um chamado de TI",
+          goal: "Para padronizar solicitações de suporte",
+        },
+      ],
       suggestTicket: true,
       askResolutionFeedback: false,
+      isAdvancedResponse: true,
     };
   }
 
-  // 3. Verifica base estendida (assuntos fora dos 38 POPs: Certificado Digital, Impressora, ERP/Acesso, Instalação Admin, Outlook/Teams, etc.)
-  let bestExtraTopic: ExtraKnowledgeTopic | null = null;
-  let bestExtraScore = 0;
-
-  for (const topic of EXTRA_KNOWLEDGE_BASE) {
-    let score = 0;
-    for (const trig of topic.triggers) {
-      const trigNorm = normalize(trig);
-      if (queryNorm.includes(trigNorm)) {
-        score += trigNorm.includes(" ") ? 18 : 12;
-      }
-    }
-    if (score > bestExtraScore) {
-      bestExtraScore = score;
-      bestExtraTopic = topic;
-    }
-  }
-
-  // Pontua todos os 38 POPs
+  // 4. Pontua todos os 38 POPs
   const scoredPops = POPS.map((pop) => ({
     pop,
     score: scorePopMatch(pop, queryNorm, tokens),
@@ -572,73 +952,61 @@ export async function generateAssistantReply(params: {
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  // Se o tópico extra tiver alta aderência (ex: impressora, certificado digital, instalar programa, ERP)
-  if (bestExtraTopic && bestExtraScore >= 12) {
-    const relatedPops = (bestExtraTopic.relatedPopCodes ?? [])
-      .map((code) => POPS.find((p) => p.code === code))
-      .filter((p): p is PopItem => Boolean(p))
-      .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
-
-    return {
-      role: "assistant",
-      content: `${bestExtraTopic.intro}\n\n${bestExtraTopic.escalateNote}`,
-      steps: bestExtraTopic.steps,
-      recommendedPops: relatedPops,
-      suggestTicket: true,
-      askResolutionFeedback: true,
-    };
+  // Se o assunto for fora dos 38 POPs (ex: Certificado Digital, Impressora, ERP, Outlook, Hostname, Instalar Programa)
+  if (
+    bestPlaybook &&
+    bestPlaybookScore >= 13 &&
+    (scoredPops.length === 0 || bestPlaybookScore > scoredPops[0].score + 4)
+  ) {
+    return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 4. Se encontrou POPs diretamente aderentes à dúvida do usuário
+  // 5. Se encontrou POPs diretamente aderentes, entrega o POP + atalho para Modo Avançado Nível 2!
   const unseenMatches = scoredPops.filter(
     (item) => !previouslySuggestedCodes.has(item.pop.code)
   );
-  const topMatches = (unseenMatches.length > 0 ? unseenMatches : scoredPops).slice(
-    0,
-    3
-  );
+  const topMatches = (
+    unseenMatches.length > 0 ? unseenMatches : scoredPops
+  ).slice(0, 3);
 
   if (topMatches.length > 0 && topMatches[0].score >= 8) {
     const primary = topMatches[0].pop;
     const theme = THEMES.find((t) => t.id === primary.themeId);
     const plainQuickSteps = primary.steps.slice(0, 3).map((s) => s.lead);
+    const linkedPlaybookId = POP_TO_PLAYBOOK_MAP[primary.code];
 
     return {
       role: "assistant",
-      content: `Encontrei o melhor caminho no manual (${primary.code}${
+      content: `Encontrei o procedimento ideal (${primary.code}${
         theme ? ` • Tema ${theme.num}` : ""
-      }): "${primary.title}". Veja o resumo rápido dos passos ou clique no card abaixo para abrir o guia completo com ilustrações:`,
+      }): "${
+        primary.title
+      }".\n\nSiga o resumo abaixo, abra o POP ilustrado ou, se já tiver tentado o básico, clique em "🔧 Tentar diagnóstico avançado (CMD/Executar)":`,
       steps: plainQuickSteps,
       recommendedPops: topMatches.map(({ pop }) => ({
         code: pop.code,
         title: pop.title,
         goal: pop.goal,
       })),
+      advancedPlaybookId: linkedPlaybookId,
       suggestTicket: false,
       askResolutionFeedback: true,
     };
   }
 
-  // 5. Fallback inteligente quando a dúvida não consta nos POPs ou precisa de mais detalhes
+  // 6. Se ainda teve aderência parcial a um Playbook Avançado
+  if (bestPlaybook && bestPlaybookScore > 0) {
+    return formatPlaybookResponse(bestPlaybook);
+  }
+
+  // 7. Fallback amigável orientando tanto problemas básicos quanto avançados
   return {
     role: "assistant",
     content:
-      "Não encontrei um POP exato com esses termos no catálogo, mas posso te ajudar! Me conte um pouco mais (ex.: qual programa/sistema apresenta erro, se aparece alguma mensagem na tela ou se é lentidão/rede) — ou, se preferir, já abra um chamado direto com a TI usando o atalho abaixo:",
+      "Me conte com suas palavras o que está acontecendo! Eu consigo te ajudar desde dúvidas rápidas do dia a dia até soluções avançadas passo a passo (como resetar IP/DNS no CMD, destravar OneDrive, limpar cache `%temp%`, Certificado Digital, Impressora ou pastas de rede):",
     steps: [
-      "Informe qual aplicativo, site ou equipamento está falhando (ex.: OneDrive, Monitor, Wi-Fi, ERP, Impressora, Certificado).",
-      "Se aparecer código ou aviso de erro na tela, use Win + Shift + S para tirar um print antes de fechar a janela.",
-    ],
-    recommendedPops: [
-      {
-        code: "POP-034",
-        title: "Como coletar informações de um erro",
-        goal: "Para agilizar o atendimento técnico",
-      },
-      {
-        code: "POP-033",
-        title: "Como abrir um chamado de TI",
-        goal: "Para padronizar solicitações de suporte",
-      },
+      "Exemplos que você pode digitar: 'internet conectada mas não navega', 'resetar ip no cmd', 'onedrive processando alterações', 'certificado digital não aparece' ou 'descobrir nome do computador'.",
+      "Ou, se preferir atendimento humano imediato, clique abaixo para abrir seu chamado na TI.",
     ],
     suggestTicket: true,
     askResolutionFeedback: false,
