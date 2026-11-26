@@ -145,11 +145,11 @@ export function AiSelfHelpWidget({
   return (
     <div
       id="aiSelfHelpWidget"
-      className="no-print fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-40 flex flex-col items-end"
+      className="no-print fixed bottom-8 right-5 sm:bottom-12 sm:right-12 lg:bottom-14 lg:right-20 xl:right-28 z-40 flex flex-col items-end"
     >
       {/* Painel do Chat / Menu de Autoajuda IA */}
       {isOpen && (
-        <div className="fade-in mb-3 w-[calc(100vw-2rem)] sm:w-[410px] max-h-[calc(100vh-6.5rem)] sm:max-h-[610px] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="fade-in mb-3.5 w-[calc(100vw-2.5rem)] sm:w-[420px] max-h-[min(580px,calc(100vh-9.5rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
           {/* Cabeçalho do Assistente */}
           <div className="bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -420,15 +420,15 @@ export function AiSelfHelpWidget({
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
         aria-label="Abrir menu de autoajuda com IA e suporte de TI"
-        className="group inline-flex items-center gap-2.5 bg-crimson hover:bg-crimson-dark text-white px-4 py-3 rounded-full shadow-xl border border-white/20 active:scale-95 transition"
+        className="group inline-flex items-center gap-3 bg-crimson hover:bg-crimson-dark text-white px-5 py-3.5 sm:px-6 sm:py-4 rounded-full shadow-2xl border-2 border-white/25 active:scale-95 transition"
       >
-        <span className="relative flex h-6 w-6 items-center justify-center rounded-full bg-white/15">
+        <span className="relative flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-white/15">
           {isOpen ? (
-            <span className="text-xs font-extrabold">✕</span>
+            <span className="text-sm font-extrabold">✕</span>
           ) : (
             <>
               <svg
-                className="w-4 h-4 text-white"
+                className="w-5 h-5 text-white"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -440,11 +440,11 @@ export function AiSelfHelpWidget({
                   d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
                 />
               </svg>
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-crimson" />
+              <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-crimson" />
             </>
           )}
         </span>
-        <span className="text-xs sm:text-sm font-extrabold tracking-tight">
+        <span className="text-sm sm:text-base font-extrabold tracking-tight">
           {isOpen ? "Fechar Autoajuda" : "Não achou? Autoajuda IA"}
         </span>
       </button>
