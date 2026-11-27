@@ -3,7 +3,9 @@ import { POPS } from "@/data/pops";
 import { THEMES } from "@/data/themes";
 import { TI_TICKET_URL, type CommandSnippet } from "@/lib/aiAssistantEngine";
 
-// Eleva o limite de execução na Vercel (inclusive no plano gratuito Hobby) de 10s para 60s, evitando corte (504) ao analisar prints de tela detalhados
+// Garante execução 100% dinâmica em Node.js na Vercel (lendo todas as Environment Variables em tempo real, sem cache estático) e até 60s para OCR de prints
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 interface IncomingHistoryItem {
@@ -20,7 +22,6 @@ interface ChatRequestBody {
   message?: string;
   currentPopCode?: string | null;
   previousInteractionId?: string | null;
-  clientApiKey?: string | null;
   history?: IncomingHistoryItem[];
   image?: IncomingImagePayload | null;
 }
@@ -198,7 +199,13 @@ const RESPONSE_JSON_SCHEMA = {
         "true quando exigir ação da equipe de TI ou caso o erro seja administrativo/físico.",
     },
   },
-  required: ["responseMode", "content", "suggestTicket"],
+  required: [
+    "responseMode",
+    "screenTranscription",
+    "content",
+    "steps",
+    "suggestTicket",
+  ],
 };
 
 const FORBIDDEN_COMMAND_PATTERNS = [
@@ -441,36 +448,34 @@ function cleanApiKeyCandidate(raw?: string | null): string | null {
   return unquoted.length >= 25 ? unquoted : null;
 }
 
-// Localiza automaticamente a chave da API Gemini no servidor mesmo se cadastrada com outro nome comum, com aspas ou invertida na Vercel
+// Lê explicitamente process.env.GEMINI_API_KEY (compatível com o compilador da Vercel/Next.js) e variações comuns
 function resolveServerGeminiApiKey(): {
   key: string | null;
   source: string | null;
 } {
-  const priorityNames = [
-    "GEMINI_API_KEY",
-    "GOOGLE_API_KEY",
-    "GOOGLE_GENERATIVE_AI_API_KEY",
-    "GOOGLE_GENAI_API_KEY",
-    "NEXT_PUBLIC_GEMINI_API_KEY",
-    "GEMINI_KEY",
-    "API_KEY",
+  const explicitEntries: Array<[string, string | undefined]> = [
+    ["GEMINI_API_KEY", process.env.GEMINI_API_KEY],
+    ["NEXT_PUBLIC_GEMINI_API_KEY", process.env.NEXT_PUBLIC_GEMINI_API_KEY],
+    ["GOOGLE_API_KEY", process.env.GOOGLE_API_KEY],
+    [
+      "GOOGLE_GENERATIVE_AI_API_KEY",
+      process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    ],
+    ["GOOGLE_GENAI_API_KEY", process.env.GOOGLE_GENAI_API_KEY],
+    ["GEMINI_KEY", process.env.GEMINI_KEY],
+    ["API_KEY", process.env.API_KEY],
   ];
 
-  for (const name of priorityNames) {
-    const cleaned = cleanApiKeyCandidate(process.env[name]);
+  for (const [name, rawVal] of explicitEntries) {
+    const cleaned = cleanApiKeyCandidate(rawVal);
     if (cleaned) {
       return { key: cleaned, source: name };
     }
   }
 
-  // Busca insensível a maiúsculas/minúsculas ou qualquer variável cujo valor/nome contenha uma chave Google (AIza...)
   for (const [envKey, envVal] of Object.entries(process.env)) {
     const upper = envKey.trim().toUpperCase();
-    if (
-      priorityNames.includes(upper) ||
-      upper.includes("GEMINI") ||
-      upper.includes("GOOGLE_API")
-    ) {
+    if (upper.includes("GEMINI") || upper.includes("GOOGLE_API")) {
       const cleaned = cleanApiKeyCandidate(envVal);
       if (cleaned) {
         return { key: cleaned, source: envKey };
@@ -482,7 +487,6 @@ function resolveServerGeminiApiKey(): {
       return { key: fromVal[0], source: envKey };
     }
 
-    // Caso o usuário tenha colado sem querer o código AIza... na coluna "Key" da Vercel
     const fromKeyName = envKey.match(/AIza[0-9A-Za-z_-]{30,45}/);
     if (fromKeyName) {
       return { key: fromKeyName[0], source: "env_key_column" };
@@ -497,6 +501,7 @@ export async function GET() {
   return NextResponse.json({
     keyConfiguredOnServer: Boolean(detected.key),
     detectedEnvSource: detected.source,
+    runtime: "nodejs",
   });
 }
 
@@ -509,8 +514,7 @@ export async function POST(request: Request) {
   }
 
   const serverDetected = resolveServerGeminiApiKey();
-  const clientFallbackKey = cleanApiKeyCandidate(body.clientApiKey);
-  const apiKey = serverDetected.key || clientFallbackKey;
+  const apiKey = serverDetected.key;
 
   if (!apiKey) {
     return NextResponse.json({ fallback: true, reason: "missing_api_key" });

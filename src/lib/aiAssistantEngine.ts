@@ -3,31 +3,6 @@ import { THEMES } from "@/data/themes";
 import type { PopItem } from "@/types/pop";
 
 export const TI_TICKET_URL = "https://ti.ecobpoti.cloud/abrir";
-export const LOCAL_GEMINI_KEY_STORAGE = "ecovis_pops_gemini_api_key";
-
-export function getSavedClientGeminiApiKey(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const val = window.localStorage.getItem(LOCAL_GEMINI_KEY_STORAGE)?.trim();
-    return val && val.length >= 25 ? val : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveClientGeminiApiKey(rawKey: string): boolean {
-  if (typeof window === "undefined") return false;
-  const cleaned = rawKey.trim().replace(/^["']+|["']+$/g, "").trim();
-  const match = cleaned.match(/AIza[0-9A-Za-z_-]{30,45}/);
-  const finalKey = match ? match[0] : cleaned;
-  if (finalKey.length < 25) return false;
-  try {
-    window.localStorage.setItem(LOCAL_GEMINI_KEY_STORAGE, finalKey);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export interface ChatActionPop {
   code: string;
@@ -55,7 +30,6 @@ export interface ChatMessage {
   content: string;
   imagePreviewUrl?: string;
   screenTranscription?: string;
-  needsApiKeySetup?: boolean;
   retryPayload?: {
     userText: string;
     image?: ChatImageAttachment | null;
@@ -1275,15 +1249,14 @@ export async function generateAssistantReply(params: {
       }
 
       try {
-        const savedClientKey = getSavedClientGeminiApiKey();
         const response = await fetch(externalEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          cache: "no-store",
           body: JSON.stringify({
             message: userText,
             currentPopCode,
             previousInteractionId: image ? null : previousInteractionId,
-            clientApiKey: savedClientKey,
             image: image
               ? {
                   base64Data: image.base64Data,
@@ -1331,10 +1304,7 @@ export async function generateAssistantReply(params: {
           }
 
           fallbackReason = data.reason ?? "upstream_unavailable";
-          if (
-            fallbackReason === "missing_api_key" ||
-            fallbackReason === "invalid_or_rejected_key"
-          ) {
+          if (fallbackReason === "missing_api_key") {
             break;
           }
         } else {
@@ -1346,33 +1316,14 @@ export async function generateAssistantReply(params: {
     }
   }
 
-  // Se o usuário enviou uma imagem/print e o ambiente ainda não recebeu a chave da API (ex.: criada no Google AI Studio mas ainda não vinculada na Vercel/.env.local)
+  // Se o envio de imagem não pôde ser processado momentaneamente, oferece botão direto de reanálise sem nunca pedir chave ao usuário
   if (image) {
-    if (
-      fallbackReason === "missing_api_key" ||
-      fallbackReason === "invalid_or_rejected_key"
-    ) {
-      return {
-        role: "assistant",
-        content:
-          fallbackReason === "invalid_or_rejected_key"
-            ? "A chave informada não foi aceita pelo Google AI Studio (confira se copiou o código `AIzaSy...` inteiro sem espaços). Cole novamente abaixo para ler seu print na hora:"
-            : "Sua chave já está ativa lá no Google AI Studio, só falta conectá-la aqui no painel! Cole o código `AIzaSy...` uma única vez abaixo que eu já leio e transcrevo seu print agora mesmo:",
-        needsApiKeySetup: true,
-        retryPayload: {
-          userText,
-          image,
-        },
-        suggestTicket: false,
-        askResolutionFeedback: false,
-        isInvestigativeQuestion: true,
-      };
-    }
-
     return {
       role: "assistant",
       content:
-        "Houve uma oscilação rápida na leitura óptica da imagem (muitos envios seguidos em poucos segundos na cota gratuita). Clique no botão abaixo para reanalisar seu print imediatamente sem precisar colar de novo:",
+        fallbackReason === "missing_api_key"
+          ? "A variável de ambiente da IA foi atualizada recentemente e aguarda o novo deploy entrar em vigor (ou o `.env.local` caso esteja em `localhost`). Clique abaixo para tentar reanalisar ou escolha onde o erro apareceu:"
+          : "Houve uma oscilação momentânea ao ler a imagem em alta definição. Clique no botão abaixo para ler seu print novamente:",
       retryPayload: {
         userText,
         image,
