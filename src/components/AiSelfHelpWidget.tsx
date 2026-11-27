@@ -56,22 +56,24 @@ function createWelcomeMessage(): ChatMessage {
     id: "welcome-msg",
     role: "assistant",
     content:
-      "Olá! Sou a IA de Autoajuda da TI ECOVIS BPO. 😊\n\nNão sabe o nome técnico do problema ou nem por onde começar? Fique tranquilo! Me conte com suas próprias palavras o que aconteceu — ou cole um print da sua tela com Ctrl + V — que eu descubro junto com você passo a passo.",
+      "Olá! Sou a IA de Autoajuda da TI ECOVIS BPO. 😊\n\nApareceu algum erro na tela ou não sabe explicar o problema? Tire um print (Win + Shift + S) e cole aqui com Ctrl + V — eu leio exatamente o que está escrito na tela, transcrevo o erro e te dou a solução passo a passo!",
     suggestTicket: false,
     askResolutionFeedback: false,
     timestamp: Date.now(),
   };
 }
 
-async function compressImageToAttachment(
+// Preserva nitidez máxima das fontes de janelas de erro (PNG original sem perdas quando <= 2560px e <= 2.4MB; alta definição 2560px WebP/JPEG 0.92 para telas gigantes/4K)
+async function prepareHighDefScreenshot(
   file: File
 ): Promise<ChatImageAttachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("Falha ao ler imagem"));
     reader.onload = () => {
-      const resultStr = typeof reader.result === "string" ? reader.result : "";
-      if (!resultStr) {
+      const originalDataUrl =
+        typeof reader.result === "string" ? reader.result : "";
+      if (!originalDataUrl) {
         reject(new Error("Imagem vazia"));
         return;
       }
@@ -79,7 +81,36 @@ async function compressImageToAttachment(
       const img = new Image();
       img.onerror = () => reject(new Error("Formato de imagem inválido"));
       img.onload = () => {
-        const maxDim = 1280;
+        const maxDim = 2560;
+        const isAllowedNativeMime =
+          file.type === "image/png" ||
+          file.type === "image/webp" ||
+          file.type === "image/jpeg";
+
+        // Se o print já tem tamanho seguro (<= 2.4 MB) e até 2560px, mantém 100% os pixels originais sem nenhuma compressão (leitura de texto cristalina!)
+        if (
+          isAllowedNativeMime &&
+          file.size <= 2_400_000 &&
+          img.width <= maxDim &&
+          img.height <= maxDim
+        ) {
+          const commaIdx = originalDataUrl.indexOf(",");
+          const rawB64 =
+            commaIdx >= 0 ? originalDataUrl.slice(commaIdx + 1) : "";
+          if (rawB64) {
+            resolve({
+              dataUrl: originalDataUrl,
+              base64Data: rawB64,
+              mimeType: file.type as
+                | "image/png"
+                | "image/webp"
+                | "image/jpeg",
+              name: file.name || "print-tela.png",
+            });
+            return;
+          }
+        }
+
         let width = img.width;
         let height = img.height;
 
@@ -102,13 +133,27 @@ async function compressImageToAttachment(
           return;
         }
 
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
         ctx.fillStyle = "#FFFFFF";
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
 
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
-        const commaIdx = dataUrl.indexOf(",");
-        const base64Data = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : "";
+        // Tenta WebP de altíssima definição (0.95) que preserva nitidez de letras sem estourar o limite de 4.5MB da Vercel
+        let finalDataUrl = canvas.toDataURL("image/webp", 0.95);
+        let finalMime: "image/webp" | "image/jpeg" = "image/webp";
+
+        if (
+          !finalDataUrl.startsWith("data:image/webp") ||
+          finalDataUrl.length > 3_800_000
+        ) {
+          finalDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          finalMime = "image/jpeg";
+        }
+
+        const commaIdx = finalDataUrl.indexOf(",");
+        const base64Data =
+          commaIdx >= 0 ? finalDataUrl.slice(commaIdx + 1) : "";
 
         if (!base64Data) {
           reject(new Error("Falha ao converter imagem"));
@@ -116,13 +161,13 @@ async function compressImageToAttachment(
         }
 
         resolve({
-          dataUrl,
+          dataUrl: finalDataUrl,
           base64Data,
-          mimeType: "image/jpeg",
-          name: file.name || "print-tela.jpg",
+          mimeType: finalMime,
+          name: file.name || "print-tela",
         });
       };
-      img.src = resultStr;
+      img.src = originalDataUrl;
     };
     reader.readAsDataURL(file);
   });
@@ -143,6 +188,7 @@ export function AiSelfHelpWidget({
   );
   const [imageError, setImageError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [isReadingImage, setIsReadingImage] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const [copiedCmdKey, setCopiedCmdKey] = useState<string | null>(null);
 
@@ -179,8 +225,8 @@ export function AiSelfHelpWidget({
     }
     setImageError(null);
     try {
-      const compressed = await compressImageToAttachment(file);
-      setPendingImage(compressed);
+      const highDef = await prepareHighDefScreenshot(file);
+      setPendingImage(highDef);
     } catch {
       setImageError("Não foi possível carregar essa imagem. Tente novamente.");
     }
@@ -214,33 +260,43 @@ export function AiSelfHelpWidget({
   };
 
   const sendMessage = useCallback(
-    async (rawText: string, explicitImage?: ChatImageAttachment | null) => {
+    async (
+      rawText: string,
+      explicitImage?: ChatImageAttachment | null,
+      skipUserBubble = false
+    ) => {
       const trimmed = rawText.trim();
       const imageToSend =
         explicitImage !== undefined ? explicitImage : pendingImage;
 
       if ((!trimmed && !imageToSend) || isTyping) return;
 
-      const displayContent =
-        trimmed || "📷 Enviei um print da minha tela para você analisar";
+      let updatedHistory = messages;
 
-      const userMsg: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: displayContent,
-        imagePreviewUrl: imageToSend?.dataUrl,
-        timestamp: Date.now(),
-      };
+      if (!skipUserBubble) {
+        const displayContent =
+          trimmed || "📷 Enviei este print da tela para leitura e solução";
 
-      const updatedHistory = [...messages, userMsg];
-      setMessages(updatedHistory);
+        const userMsg: ChatMessage = {
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: displayContent,
+          imagePreviewUrl: imageToSend?.dataUrl,
+          timestamp: Date.now(),
+        };
+
+        updatedHistory = [...messages, userMsg];
+        setMessages(updatedHistory);
+      }
+
       setInputValue("");
       setPendingImage(null);
       setImageError(null);
       setIsTyping(true);
+      setIsReadingImage(Boolean(imageToSend));
 
       try {
-        await new Promise((resolve) => setTimeout(resolve, 220));
+        await new Promise((resolve) => setTimeout(resolve, 150));
         const reply = await generateAssistantReply({
           userText: trimmed,
           history: updatedHistory,
@@ -258,6 +314,7 @@ export function AiSelfHelpWidget({
         ]);
       } finally {
         setIsTyping(false);
+        setIsReadingImage(false);
       }
     },
     [currentPopCode, isTyping, messages, pendingImage]
@@ -280,7 +337,7 @@ export function AiSelfHelpWidget({
       setMessages((prev) => [...prev, userMsg]);
       setIsTyping(true);
 
-      await new Promise((resolve) => setTimeout(resolve, 280));
+      await new Promise((resolve) => setTimeout(resolve, 240));
       setMessages((prev) => [
         ...prev,
         {
@@ -349,7 +406,7 @@ export function AiSelfHelpWidget({
       {isOpen && (
         <div
           onPaste={handlePaste}
-          className="fade-in mb-3.5 w-[calc(100vw-2.5rem)] sm:w-[445px] max-h-[min(620px,calc(100vh-9.5rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="fade-in mb-3.5 w-[calc(100vw-2.5rem)] sm:w-[450px] max-h-[min(630px,calc(100vh-9.5rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         >
           {/* Cabeçalho do Assistente */}
           <div className="bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-2 shrink-0">
@@ -372,12 +429,12 @@ export function AiSelfHelpWidget({
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <h3 className="text-sm font-extrabold tracking-tight truncate">
-                    Guia IA • Suporte Passo a Passo
+                    Guia IA • Leitura de Erro e Solução
                   </h3>
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                 </div>
                 <p className="text-[11px] text-white/85 truncate">
-                  Descobre o problema com você • Aceita print da tela
+                  Cole print do erro (Ctrl+V) ou conte com suas palavras
                 </p>
               </div>
             </div>
@@ -440,7 +497,7 @@ export function AiSelfHelpWidget({
                   }`}
                 >
                   <div
-                    className={`max-w-[94%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-sm ${
+                    className={`max-w-[95%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-sm ${
                       isUser
                         ? "bg-crimson text-white rounded-br-sm"
                         : "bg-white text-stoneink border border-stone-200 rounded-bl-sm"
@@ -451,8 +508,20 @@ export function AiSelfHelpWidget({
                         <img
                           src={msg.imagePreviewUrl}
                           alt="Print enviado pelo colaborador"
-                          className="max-h-44 w-auto object-contain rounded-xl"
+                          className="max-h-48 w-auto object-contain rounded-xl"
                         />
+                      </div>
+                    )}
+
+                    {/* Caixa de Transcrição Fiel do Erro Lido na Tela */}
+                    {msg.screenTranscription && (
+                      <div className="mb-2.5 rounded-xl bg-stone-900 text-stone-100 border border-stone-700 px-3 py-2">
+                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mb-0.5">
+                          🔎 Erro / Texto transcrito do seu print:
+                        </div>
+                        <div className="font-mono text-[11.5px] text-white leading-snug break-words">
+                          {msg.screenTranscription}
+                        </div>
                       </div>
                     )}
 
@@ -460,9 +529,32 @@ export function AiSelfHelpWidget({
                       {msg.content}
                     </p>
 
+                    {/* Botão de Reanalisar Print caso tenha ocorrido pico na rede */}
+                    {msg.retryPayload && (
+                      <div className="mt-2.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void sendMessage(
+                              msg.retryPayload!.userText,
+                              msg.retryPayload!.image,
+                              true
+                            )
+                          }
+                          disabled={isTyping}
+                          className="w-full text-center bg-crimson hover:bg-crimson-dark text-white text-xs font-extrabold px-3 py-2 rounded-xl shadow-sm transition disabled:opacity-50"
+                        >
+                          🔄 Tentar ler este print novamente
+                        </button>
+                      </div>
+                    )}
+
                     {/* Lista de passos visuais simples */}
                     {msg.steps && msg.steps.length > 0 && (
                       <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-2">
+                        <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-crimson">
+                          Passo a passo recomendado:
+                        </div>
                         {msg.steps.map((st, idx) => (
                           <div
                             key={`${msg.id}-st-${idx}`}
@@ -480,7 +572,6 @@ export function AiSelfHelpWidget({
                     {/* Bloco Interativo de Comandos Guiados (CMD / Win + R) */}
                     {msg.commands && msg.commands.length > 0 && (
                       <div className="mt-3 pt-2.5 border-t border-stone-200 space-y-2.5">
-                        {/* Explicação passo a passo para leigos de como abrir CMD ou Win + R */}
                         <div className="bg-amber-50/80 border border-amber-200 rounded-lg px-2.5 py-2 text-[11px] text-stone-700 leading-snug space-y-1">
                           {hasCmd && (
                             <div>
@@ -631,7 +722,7 @@ export function AiSelfHelpWidget({
                       </div>
                     )}
 
-                    {/* Feedback rápido de resolução (apenas quando não houver quickReplies específicos ou como complemento) */}
+                    {/* Feedback rápido de resolução */}
                     {msg.askResolutionFeedback &&
                       (!msg.quickReplies || msg.quickReplies.length === 0) && (
                         <div className="mt-2.5 pt-2 border-t border-stone-100 flex flex-wrap items-center gap-1.5">
@@ -651,7 +742,7 @@ export function AiSelfHelpWidget({
                             type="button"
                             onClick={() =>
                               void sendMessage(
-                                "Não consegui fazer ou não resolveu, me ajuda de um jeito mais fácil?",
+                                "Ainda não resolveu, me ajuda com outra alternativa?",
                                 null
                               )
                             }
@@ -663,7 +754,7 @@ export function AiSelfHelpWidget({
                       )}
                   </div>
 
-                  {/* Botões Dinâmicos de Resposta Rápida gerados pela IA para guiar o usuário leigo com 1 clique */}
+                  {/* Botões Dinâmicos de Resposta Rápida */}
                   {isLatestAssistant &&
                     msg.quickReplies &&
                     msg.quickReplies.length > 0 && (
@@ -691,7 +782,7 @@ export function AiSelfHelpWidget({
               );
             })}
 
-            {/* Opções iniciais acolhedoras para quem acabou de abrir o chat */}
+            {/* Opções iniciais acolhedoras */}
             {messages.length === 1 && !isTyping && (
               <div className="pt-1">
                 <div className="text-[11px] font-bold text-stone-500 mb-1.5">
@@ -734,7 +825,11 @@ export function AiSelfHelpWidget({
               <div className="flex items-start">
                 <div className="bg-white border border-stone-200 rounded-2xl rounded-bl-sm px-3.5 py-2 text-xs text-stone-500 shadow-sm flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-crimson animate-bounce" />
-                  <span>Analisando com cuidado para te guiar...</span>
+                  <span>
+                    {isReadingImage
+                      ? "Lendo o texto do print em alta definição e preparando a solução..."
+                      : "Analisando com cuidado para te guiar..."}
+                  </span>
                 </div>
               </div>
             )}
@@ -767,10 +862,10 @@ export function AiSelfHelpWidget({
                       />
                       <div className="min-w-0">
                         <div className="text-[11px] font-bold text-stone-800 truncate">
-                          Print da tela pronto para análise
+                          Print em alta definição pronto
                         </div>
                         <div className="text-[10px] text-stone-500 truncate">
-                          Clique em Enviar (ou escreva uma observação)
+                          Clique em Enviar para transcrever o erro e resolver
                         </div>
                       </div>
                     </div>
@@ -804,8 +899,8 @@ export function AiSelfHelpWidget({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isTyping}
-              title="Enviar print ou foto da tela (você também pode colar com Ctrl + V)"
-              aria-label="Enviar print ou foto da tela"
+              title="Enviar print ou foto do erro (ou cole com Ctrl + V)"
+              aria-label="Enviar print ou foto do erro"
               className="bg-stone-100 hover:bg-rose-50 text-stone-600 hover:text-crimson border border-stone-200 hover:border-crimson/40 rounded-xl p-2.5 transition shrink-0 disabled:opacity-45"
             >
               <svg
@@ -834,7 +929,7 @@ export function AiSelfHelpWidget({
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Conte com suas palavras ou cole print (Ctrl+V)..."
+              placeholder="Cole o print (Ctrl+V) ou conte o que houve..."
               className="flex-1 min-w-0 bg-stone-50 text-stoneink placeholder-stone-400 text-xs sm:text-sm rounded-xl px-3 py-2.5 border border-stone-200 focus:outline-none focus:border-crimson focus:bg-white transition"
             />
             <button

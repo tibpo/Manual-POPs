@@ -29,6 +29,11 @@ export interface ChatMessage {
   role: "assistant" | "user";
   content: string;
   imagePreviewUrl?: string;
+  screenTranscription?: string;
+  retryPayload?: {
+    userText: string;
+    image: ChatImageAttachment;
+  };
   steps?: string[];
   commands?: CommandSnippet[];
   recommendedPops?: ChatActionPop[];
@@ -73,7 +78,6 @@ function normalize(text: string): string {
     .trim();
 }
 
-// Palavras genéricas de ligação, negação, sintomas ou interface que NUNCA devem pontuar POPs sozinhas
 const STOPWORDS = new Set([
   "nao",
   "sim",
@@ -220,7 +224,6 @@ const STOPWORDS = new Set([
   "coisa",
 ]);
 
-// Termos amplos que ajudam a desempatar, mas jamais validam sozinhos um POP sem o assunto principal
 const WEAK_CONTEXT_TOKENS = new Set([
   "notebook",
   "computador",
@@ -266,7 +269,6 @@ function textHasPhrase(textNorm: string, phraseNorm: string): boolean {
   return false;
 }
 
-// Base de Diagnóstico Técnico Especialista (Nível 2) traduzida de forma simples e segura (sem exigir senha de Admin)
 const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
   {
     id: "outlook-grupos-interface",
@@ -843,7 +845,6 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
   },
 ];
 
-// Mapa direto de qual Playbook Avançado sugerir quando um POP específico não resolver!
 const POP_TO_PLAYBOOK_MAP: Record<string, string> = {
   "POP-001": "limpeza-profunda-temp",
   "POP-002": "limpeza-profunda-temp",
@@ -1137,6 +1138,11 @@ export function buildTicketSummary(
     )
     .filter(Boolean);
 
+  const latestTranscription = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.screenTranscription?.trim())
+    ?.screenTranscription?.trim();
+
   const latestDiagnosis = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && m.diagnosedIssue?.trim())
@@ -1173,6 +1179,10 @@ export function buildTicketSummary(
     "Resumo de Pré-Atendimento (Assistente IA • Portal POPs TI)",
   ];
 
+  if (latestTranscription) {
+    lines.push(`• Erro transcrito do print: ${latestTranscription}`);
+  }
+
   if (latestDiagnosis) {
     lines.push(`• Diagnóstico identificado pela IA: ${latestDiagnosis}`);
   }
@@ -1197,6 +1207,21 @@ export function buildTicketSummary(
   return lines.join("\n");
 }
 
+interface ApiChatPayload {
+  fallback?: boolean;
+  reason?: string;
+  responseMode?: "investigate" | "solve" | "escalate";
+  screenTranscription?: string;
+  content?: string;
+  steps?: string[];
+  commands?: CommandSnippet[];
+  quickReplies?: string[];
+  popCodes?: string[];
+  diagnosedIssue?: string;
+  suggestTicket?: boolean;
+  interactionId?: string;
+}
+
 export async function generateAssistantReply(params: {
   userText: string;
   history: ChatMessage[];
@@ -1209,94 +1234,118 @@ export async function generateAssistantReply(params: {
   const previousInteractionId =
     prevMsg?.role === "assistant" ? prevMsg.interactionId ?? null : null;
 
-  // Conecta na rota generativa /api/chat (Google Gemini 4 Hydrogen gratuito via Interactions API)
+  let fallbackReason: string | null = null;
+
   const externalEndpoint =
     process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT || "/api/chat";
+
   if (externalEndpoint) {
-    try {
-      const response = await fetch(externalEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: userText,
-          currentPopCode,
-          previousInteractionId,
-          image: image
-            ? {
-                base64Data: image.base64Data,
-                mimeType: image.mimeType,
-              }
-            : null,
-          history: history.slice(-10).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      });
-      if (response.ok) {
-        const data = (await response.json()) as {
-          responseMode?: "investigate" | "solve" | "escalate";
-          content?: string;
-          steps?: string[];
-          commands?: CommandSnippet[];
-          quickReplies?: string[];
-          popCodes?: string[];
-          diagnosedIssue?: string;
-          suggestTicket?: boolean;
-          interactionId?: string;
-        };
-        if (data.content) {
-          const isInvestigative = data.responseMode === "investigate";
-          const isEscalate = data.responseMode === "escalate";
+    // Em envio de print, permite até 2 tentativas automáticas (caso haja pico momentâneo na cota gratuita por minuto)
+    const maxAttempts = image ? 2 : 1;
 
-          const recommendedPops = isInvestigative
-            ? []
-            : (data.popCodes ?? [])
-                .map((code) => POPS.find((p) => p.code === code))
-                .filter((p): p is PopItem => Boolean(p))
-                .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
-
-          return {
-            role: "assistant",
-            content: data.content,
-            steps: data.steps,
-            commands: data.commands,
-            quickReplies: data.quickReplies,
-            diagnosedIssue: data.diagnosedIssue,
-            interactionId: data.interactionId,
-            recommendedPops:
-              recommendedPops.length > 0 ? recommendedPops : undefined,
-            suggestTicket: isInvestigative
-              ? false
-              : isEscalate || Boolean(data.suggestTicket),
-            askResolutionFeedback: !isInvestigative,
-            isInvestigativeQuestion: isInvestigative,
-          };
-        }
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1600));
       }
-    } catch {
-      // Continua automaticamente no motor especialista local em caso de queda de rede
+
+      try {
+        const response = await fetch(externalEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: userText,
+            currentPopCode,
+            previousInteractionId: image ? null : previousInteractionId,
+            image: image
+              ? {
+                  base64Data: image.base64Data,
+                  mimeType: image.mimeType,
+                }
+              : null,
+            history: history.slice(-8).map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+          }),
+        });
+
+        if (response.ok) {
+          const data = (await response.json()) as ApiChatPayload;
+
+          if (data.content) {
+            const isInvestigative = data.responseMode === "investigate";
+            const isEscalate = data.responseMode === "escalate";
+
+            const recommendedPops = isInvestigative
+              ? []
+              : (data.popCodes ?? [])
+                  .map((code) => POPS.find((p) => p.code === code))
+                  .filter((p): p is PopItem => Boolean(p))
+                  .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
+
+            return {
+              role: "assistant",
+              screenTranscription: data.screenTranscription,
+              content: data.content,
+              steps: data.steps,
+              commands: data.commands,
+              quickReplies: data.quickReplies,
+              diagnosedIssue: data.diagnosedIssue,
+              interactionId: data.interactionId,
+              recommendedPops:
+                recommendedPops.length > 0 ? recommendedPops : undefined,
+              suggestTicket: isInvestigative
+                ? false
+                : isEscalate || Boolean(data.suggestTicket),
+              askResolutionFeedback: !isInvestigative,
+              isInvestigativeQuestion: isInvestigative,
+            };
+          }
+
+          fallbackReason = data.reason ?? "upstream_unavailable";
+          if (fallbackReason === "missing_api_key") {
+            break;
+          }
+        } else {
+          fallbackReason = `http_${response.status}`;
+        }
+      } catch {
+        fallbackReason = "network_error";
+      }
     }
   }
 
-  // =========================================================================
-  // MOTOR DE CONTINGÊNCIA LOCAL (OFFLINE / SEM CHAVE) COM TRIAGEM P/ LEIGOS
-  // =========================================================================
-  const queryNorm = normalize(userText);
-  const tokens = queryNorm
-    .split(" ")
-    .filter((t) => t.length >= 2 && !STOPWORDS.has(t));
+  // Se o usuário enviou uma imagem/print e a API não pôde ler (ex.: falta .env.local em localhost ou limite momentâneo de requisições por minuto)
+  if (image) {
+    if (fallbackReason === "missing_api_key") {
+      return {
+        role: "assistant",
+        content:
+          "Para eu ler imagens e prints da tela, a chave `GEMINI_API_KEY` precisa estar ativa neste ambiente (no site da Vercel ela fica em Settings > Environment Variables; se estiver testando em `localhost`, adicione no arquivo `.env.local` e reinicie o `npm.cmd run dev`).\n\nEnquanto isso, clique abaixo onde esse erro apareceu que já te guio:",
+        quickReplies: [
+          "Apareceu no E-mail (Outlook) ou Teams",
+          "É na Internet / navegador não abre",
+          "Pediu senha de Administrador",
+          "O notebook travou ou está lento",
+        ],
+        suggestTicket: false,
+        askResolutionFeedback: false,
+        isInvestigativeQuestion: true,
+      };
+    }
 
-  if (image && tokens.length === 0) {
     return {
       role: "assistant",
       content:
-        "Recebi o seu print! No momento estou operando em modo rápido offline e não consigo ler a imagem diretamente, mas eu te ajudo a resolver agora mesmo!\n\nMe diga em uma frase simples onde esse aviso apareceu (ou clique em uma das opções abaixo):",
+        "Houve uma oscilação rápida na leitura óptica da imagem (muitos envios seguidos em poucos segundos na cota gratuita). Clique no botão abaixo para reanalisar seu print imediatamente sem precisar colar de novo:",
+      retryPayload: {
+        userText,
+        image,
+      },
       quickReplies: [
         "Apareceu no E-mail (Outlook) ou Teams",
         "É na Internet / navegador não abre",
         "Pediu senha de Administrador",
-        "A tela travou ou ficou estranha",
       ],
       suggestTicket: false,
       askResolutionFeedback: false,
@@ -1304,18 +1353,24 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 1. Confirmação positiva
+  // =========================================================================
+  // MOTOR DE CONTINGÊNCIA LOCAL (TEXTO) COM TRIAGEM P/ LEIGOS
+  // =========================================================================
+  const queryNorm = normalize(userText);
+  const tokens = queryNorm
+    .split(" ")
+    .filter((t) => t.length >= 2 && !STOPWORDS.has(t));
+
   if (isPositiveConfirmation(queryNorm)) {
     return {
       role: "assistant",
       content:
-        "Que notícia ótima! Fico feliz que conseguimos resolver juntos. 😊\n\nSe surgir qualquer outra dúvida — mesmo que não saiba o nome técnico — é só me chamar aqui!",
+        "Que notícia ótima! Fico feliz que conseguimos resolver juntos. 😊\n\nSe surgir qualquer outra dúvida — ou quiser mandar um print de algum aviso — é só me chamar aqui!",
       suggestTicket: false,
       askResolutionFeedback: false,
     };
   }
 
-  // 2. Triagem acolhedora para usuário totalmente leigo ("não sei explicar", "me ajude do zero", etc.)
   if (isLaypersonHelpFromScratchIntent(queryNorm)) {
     return {
       role: "assistant",
@@ -1354,7 +1409,6 @@ export async function generateAssistantReply(params: {
     }
   }
 
-  // 3. Pedido explícito de comandos rápidos / avançados
   if (isAdvancedExplicitRequest(queryNorm)) {
     if (bestPlaybook) {
       return formatPlaybookResponse(bestPlaybook);
@@ -1375,12 +1429,10 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 4. Ferramenta externa sem POP dedicado
   if (hasExternalSubjectWithoutDedicatedPop(queryNorm) && bestPlaybook) {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 5. Quando o usuário diz que "não resolveu" ou "não achou o botão"
   if (isUnresolvedOrEscalationIntent(queryNorm)) {
     const refPop =
       explicitPopCode ??
@@ -1422,7 +1474,6 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 6. Pontua POPs com palavras reais e entrega os passos JÁ EXPLICADOS no chat (para o leigo não depender de abrir manual!)
   const scoredPops = POPS.map((pop) => ({
     pop,
     score: scorePopMatch(pop, queryNorm, tokens),
@@ -1455,7 +1506,7 @@ export async function generateAssistantReply(params: {
 
     return {
       role: "assistant",
-      content: `Entendi o que está acontecendo! Vou te guiar de um jeito bem fácil agora mesmo (nem precisa procurar no manual, já separei cada passo aqui embaixo):`,
+      content: `Entendi o que está acontecendo! Vou te guiar de um jeito bem fácil agora mesmo (já separei cada passo aqui embaixo):`,
       steps: fullPlainSteps,
       diagnosedIssue: `${primary.title} (${primary.code}${
         theme ? ` • ${theme.name}` : ""
@@ -1479,11 +1530,10 @@ export async function generateAssistantReply(params: {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 7. Pergunta investigativa amigável quando o texto foi muito curto ou vago
   return {
     role: "assistant",
     content:
-      "Quero ter certeza de te dar o caminho certinho sem chutar! Me conta só mais um detalhe (ou toque em uma opção abaixo): onde exatamente isso está acontecendo na sua tela?",
+      "Quero ter certeza de te dar o caminho certinho sem chutar! Me conta só mais um detalhe (ou cole um print da tela com Ctrl + V): onde exatamente isso está acontecendo?",
     quickReplies: [
       "O notebook está lento ou travado",
       "A internet ou um site não abre",
