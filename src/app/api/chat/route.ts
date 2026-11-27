@@ -56,12 +56,27 @@ interface InteractionApiResponse {
   steps?: InteractionStep[];
 }
 
+interface GenerateContentPart {
+  text?: string;
+  thought?: boolean;
+}
+
+interface GenerateContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: GenerateContentPart[];
+    };
+  }>;
+}
+
 interface RawModelAttemptResult {
   ok: boolean;
   status: number;
   rawJsonText: string | null;
   interactionId?: string;
+  provider?: "gemini-interactions" | "vertex-express";
   errorSnippet?: string;
+  authKeyRejectedByDeveloperApi?: boolean;
 }
 
 const VALID_POP_CODES = new Set(POPS.map((p) => p.code));
@@ -348,6 +363,7 @@ async function callInteractionsApi(params: {
 
   let lastStatus = 0;
   let lastSnippet = "";
+  let authKeyRejected = false;
 
   for (const url of endpoints) {
     try {
@@ -359,7 +375,7 @@ async function callInteractionsApi(params: {
           "Api-Revision": API_REVISION_HEADER,
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(image ? 8200 : 9000),
+        signal: AbortSignal.timeout(image ? 7800 : 8500),
       });
 
       if (res.ok) {
@@ -370,6 +386,7 @@ async function callInteractionsApi(params: {
             ok: true,
             status: 200,
             rawJsonText: jsonText,
+            provider: "gemini-interactions",
             interactionId:
               typeof payload.id === "string" ? payload.id : undefined,
           };
@@ -377,7 +394,18 @@ async function callInteractionsApi(params: {
       } else {
         lastStatus = res.status;
         const errText = await res.text().catch(() => "");
-        lastSnippet = errText.slice(0, 140);
+        lastSnippet = errText.slice(0, 160);
+
+        if (
+          apiKey.startsWith("AQ.") &&
+          (res.status === 400 || res.status === 401 || res.status === 403) &&
+          /api_key_invalid|api key not valid|unauthenticated|permission_denied|credentials|invalid api key/i.test(
+            errText
+          )
+        ) {
+          authKeyRejected = true;
+          break;
+        }
 
         // Se for 429 (cota por minuto) ou 401/403, não repete no segundo endpoint do mesmo modelo
         if (res.status === 429 || res.status === 401 || res.status === 403) {
@@ -396,15 +424,130 @@ async function callInteractionsApi(params: {
     status: lastStatus,
     rawJsonText: null,
     errorSnippet: lastSnippet,
+    authKeyRejectedByDeveloperApi: authKeyRejected,
   };
 }
 
+// Suporte automático caso a chave AQ.* tenha sido emitida via Vertex AI Express Mode (aiplatform.googleapis.com)
+async function callVertexExpressApi(params: {
+  apiKey: string;
+  systemInstruction: string;
+  promptText: string;
+  image?: { base64Data: string; mimeType: string } | null;
+}): Promise<RawModelAttemptResult> {
+  const { apiKey, systemInstruction, promptText, image } = params;
+
+  const userParts: Array<Record<string, unknown>> = [];
+  if (image) {
+    userParts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.base64Data,
+      },
+    });
+  }
+  userParts.push({ text: promptText });
+
+  const requestBody = {
+    systemInstruction: {
+      parts: [{ text: systemInstruction }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: userParts,
+      },
+    ],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: "application/json",
+    },
+  };
+
+  const vertexEndpoints = [
+    "https://aiplatform.googleapis.com/v1beta1/publishers/google/models/gemini-3.1-flash-lite-preview:generateContent",
+    "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent",
+    "https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent",
+  ];
+
+  let lastStatus = 0;
+  let lastSnippet = "";
+
+  for (const url of vertexEndpoints) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(image ? 8200 : 8800),
+      });
+
+      if (res.ok) {
+        const payload = (await res.json()) as GenerateContentResponse;
+        const parts = payload.candidates?.[0]?.content?.parts;
+        if (Array.isArray(parts) && parts.length > 0) {
+          const textOut = parts
+            .filter((p) => !p.thought && typeof p.text === "string")
+            .map((p) => p.text!)
+            .join("")
+            .trim();
+          if (textOut) {
+            return {
+              ok: true,
+              status: 200,
+              rawJsonText: textOut,
+              provider: "vertex-express",
+            };
+          }
+        }
+      } else {
+        lastStatus = res.status;
+        const errText = await res.text().catch(() => "");
+        lastSnippet = errText.slice(0, 160);
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          break;
+        }
+      }
+    } catch (err) {
+      lastStatus = 504;
+      lastSnippet = err instanceof Error ? err.name : "timeout";
+      break;
+    }
+  }
+
+  return {
+    ok: false,
+    status: lastStatus,
+    rawJsonText: null,
+    errorSnippet: lastSnippet,
+  };
+}
+
+const GOOGLE_AUTH_KEY_REGEX = /AQ\.[0-9A-Za-z._-]{25,120}/;
+const GOOGLE_STD_KEY_REGEX = /AIza[0-9A-Za-z_-]{30,50}/;
+
 function cleanApiKeyCandidate(raw?: string | null): string | null {
   if (!raw) return null;
-  const unquoted = raw.trim().replace(/^["']+|["']+$/g, "").trim();
-  const match = unquoted.match(/AIza[0-9A-Za-z_-]{30,45}/);
-  if (match) return match[0];
-  return unquoted.length >= 25 ? unquoted : null;
+  const unquoted = raw
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^(?:Manual_POPs_Ecovis|GEMINI_API_KEY|GOOGLE_API_KEY|Bearer)\s*[=:]?\s*/i, "")
+    .trim();
+
+  const authMatch = unquoted.match(GOOGLE_AUTH_KEY_REGEX);
+  if (authMatch) return authMatch[0];
+
+  const stdMatch = unquoted.match(GOOGLE_STD_KEY_REGEX);
+  if (stdMatch) return stdMatch[0];
+
+  // Rejeita caminhos de pastas do Windows/OneDrive ou URLs caso haja variável com nome similar
+  if (unquoted.length >= 25 && !/[\s\\/:]/.test(unquoted)) {
+    return unquoted;
+  }
+  return null;
 }
 
 function resolveServerGeminiApiKey(): {
@@ -412,6 +555,17 @@ function resolveServerGeminiApiKey(): {
   source: string | null;
 } {
   const explicitEntries: Array<[string, string | undefined]> = [
+    ["Manual_POPs_Ecovis", process.env.Manual_POPs_Ecovis],
+    ["MANUAL_POPS_ECOVIS", process.env.MANUAL_POPS_ECOVIS],
+    ["manual_pops_ecovis", process.env.manual_pops_ecovis],
+    [
+      "NEXT_PUBLIC_Manual_POPs_Ecovis",
+      process.env.NEXT_PUBLIC_Manual_POPs_Ecovis,
+    ],
+    [
+      "NEXT_PUBLIC_MANUAL_POPS_ECOVIS",
+      process.env.NEXT_PUBLIC_MANUAL_POPS_ECOVIS,
+    ],
     ["GEMINI_API_KEY", process.env.GEMINI_API_KEY],
     ["NEXT_PUBLIC_GEMINI_API_KEY", process.env.NEXT_PUBLIC_GEMINI_API_KEY],
     ["GOOGLE_API_KEY", process.env.GOOGLE_API_KEY],
@@ -433,21 +587,35 @@ function resolveServerGeminiApiKey(): {
 
   for (const [envKey, envVal] of Object.entries(process.env)) {
     const upper = envKey.trim().toUpperCase();
-    if (upper.includes("GEMINI") || upper.includes("GOOGLE_API")) {
+    if (
+      upper.includes("MANUAL_POPS") ||
+      upper.includes("GEMINI") ||
+      upper.includes("GOOGLE_API")
+    ) {
       const cleaned = cleanApiKeyCandidate(envVal);
       if (cleaned) {
         return { key: cleaned, source: envKey };
       }
     }
 
-    const fromVal = envVal?.match(/AIza[0-9A-Za-z_-]{30,45}/);
-    if (fromVal) {
-      return { key: fromVal[0], source: envKey };
+    const authFromVal = envVal?.match(GOOGLE_AUTH_KEY_REGEX);
+    if (authFromVal) {
+      return { key: authFromVal[0], source: envKey };
     }
 
-    const fromKeyName = envKey.match(/AIza[0-9A-Za-z_-]{30,45}/);
-    if (fromKeyName) {
-      return { key: fromKeyName[0], source: "env_key_column" };
+    const stdFromVal = envVal?.match(GOOGLE_STD_KEY_REGEX);
+    if (stdFromVal) {
+      return { key: stdFromVal[0], source: envKey };
+    }
+
+    const authFromKeyName = envKey.match(GOOGLE_AUTH_KEY_REGEX);
+    if (authFromKeyName) {
+      return { key: authFromKeyName[0], source: "env_key_column" };
+    }
+
+    const stdFromKeyName = envKey.match(GOOGLE_STD_KEY_REGEX);
+    if (stdFromKeyName) {
+      return { key: stdFromKeyName[0], source: "env_key_column" };
     }
   }
 
@@ -459,18 +627,38 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
 
   if (url.searchParams.get("ping") === "1" && detected.key) {
-    const pingTest = await callInteractionsApi({
+    const sys = buildSystemInstruction(true);
+    const prompt = "Responda com um JSON curto confirmando que está online.";
+    let pingTest = await callInteractionsApi({
       apiKey: detected.key,
       model: "gemini-4-hydrogen",
-      systemInstruction: buildSystemInstruction(true),
-      promptText: "Responda com um JSON curto confirmando que está online.",
+      systemInstruction: sys,
+      promptText: prompt,
       image: null,
       previousInteractionId: null,
     });
 
+    if (
+      !pingTest.ok &&
+      detected.key.startsWith("AQ.") &&
+      (pingTest.authKeyRejectedByDeveloperApi ||
+        pingTest.status === 400 ||
+        pingTest.status === 401 ||
+        pingTest.status === 403)
+    ) {
+      pingTest = await callVertexExpressApi({
+        apiKey: detected.key,
+        systemInstruction: sys,
+        promptText: prompt,
+        image: null,
+      });
+    }
+
     return NextResponse.json({
       keyConfiguredOnServer: true,
       detectedEnvSource: detected.source,
+      keyType: detected.key.startsWith("AQ.") ? "google_auth_key" : "standard",
+      provider: pingTest.provider ?? null,
       pingOk: pingTest.ok,
       pingStatus: pingTest.status,
       pingError: pingTest.errorSnippet ?? null,
@@ -480,6 +668,11 @@ export async function GET(request: Request) {
   return NextResponse.json({
     keyConfiguredOnServer: Boolean(detected.key),
     detectedEnvSource: detected.source,
+    keyType: detected.key?.startsWith("AQ.")
+      ? "google_auth_key"
+      : detected.key
+      ? "standard"
+      : null,
     runtime: "nodejs",
   });
 }
@@ -558,58 +751,10 @@ export async function POST(request: Request) {
   const modelsToTry = resolveModelQueue(process.env.GEMINI_MODEL);
   const previousInteractionId = body.previousInteractionId?.trim() || null;
 
-  let lastStatus = 0;
-  let lastErrorSnippet = "";
-  const routeStartMs = Date.now();
-
-  for (let idx = 0; idx < modelsToTry.length; idx++) {
-    // Evita ultrapassar a janela de execução da função Serverless
-    if (Date.now() - routeStartMs > 22000) {
-      break;
-    }
-
-    const modelName = modelsToTry[idx];
-    const usePrevId = !hasValidImage && idx === 0 && Boolean(previousInteractionId);
-
-    const attempt = await callInteractionsApi({
-      apiKey,
-      model: modelName,
-      systemInstruction,
-      promptText: usePrevId ? singleTurnText : fullStatelessText,
-      image: validImageObj,
-      previousInteractionId: usePrevId ? previousInteractionId : null,
-    });
-
-    let finalAttempt = attempt;
-
-    // Se falhou apenas por previous_interaction_id expirado (400/404 em texto), reenvia sem previous_interaction_id
-    if (
-      !finalAttempt.ok &&
-      usePrevId &&
-      (finalAttempt.status === 400 || finalAttempt.status === 404)
-    ) {
-      finalAttempt = await callInteractionsApi({
-        apiKey,
-        model: modelName,
-        systemInstruction,
-        promptText: fullStatelessText,
-        image: validImageObj,
-        previousInteractionId: null,
-      });
-    }
-
-    if (!finalAttempt.ok || !finalAttempt.rawJsonText) {
-      lastStatus = finalAttempt.status;
-      lastErrorSnippet = finalAttempt.errorSnippet ?? "";
-      continue;
-    }
-
-    const parsed = parseStructuredReplySafely(finalAttempt.rawJsonText);
-    if (!parsed || !parsed.content || typeof parsed.content !== "string") {
-      lastStatus = 422;
-      continue;
-    }
-
+  const formatValidatedReply = (
+    parsed: GeminiStructuredReply,
+    interactionId?: string
+  ) => {
     const responseMode: "investigate" | "solve" | "escalate" =
       parsed.responseMode === "investigate" ||
       parsed.responseMode === "solve" ||
@@ -691,8 +836,96 @@ export async function POST(request: Request) {
         responseMode === "investigate"
           ? false
           : responseMode === "escalate" || Boolean(parsed.suggestTicket),
-      interactionId: !hasValidImage ? finalAttempt.interactionId : undefined,
+      interactionId: !hasValidImage ? interactionId : undefined,
     });
+  };
+
+  let lastStatus = 0;
+  let lastErrorSnippet = "";
+  let developerApiRejectedAuthKey = false;
+  const routeStartMs = Date.now();
+
+  for (let idx = 0; idx < modelsToTry.length; idx++) {
+    // Evita ultrapassar a janela de execução da função Serverless
+    if (Date.now() - routeStartMs > 22000) {
+      break;
+    }
+
+    const modelName = modelsToTry[idx];
+    const usePrevId = !hasValidImage && idx === 0 && Boolean(previousInteractionId);
+
+    const attempt = await callInteractionsApi({
+      apiKey,
+      model: modelName,
+      systemInstruction,
+      promptText: usePrevId ? singleTurnText : fullStatelessText,
+      image: validImageObj,
+      previousInteractionId: usePrevId ? previousInteractionId : null,
+    });
+
+    let finalAttempt = attempt;
+
+    // Se falhou apenas por previous_interaction_id expirado (400/404 em texto), reenvia sem previous_interaction_id
+    if (
+      !finalAttempt.ok &&
+      !finalAttempt.authKeyRejectedByDeveloperApi &&
+      usePrevId &&
+      (finalAttempt.status === 400 || finalAttempt.status === 404)
+    ) {
+      finalAttempt = await callInteractionsApi({
+        apiKey,
+        model: modelName,
+        systemInstruction,
+        promptText: fullStatelessText,
+        image: validImageObj,
+        previousInteractionId: null,
+      });
+    }
+
+    if (!finalAttempt.ok || !finalAttempt.rawJsonText) {
+      lastStatus = finalAttempt.status;
+      lastErrorSnippet = finalAttempt.errorSnippet ?? "";
+      if (finalAttempt.authKeyRejectedByDeveloperApi) {
+        developerApiRejectedAuthKey = true;
+        break;
+      }
+      continue;
+    }
+
+    const parsed = parseStructuredReplySafely(finalAttempt.rawJsonText);
+    if (!parsed || !parsed.content || typeof parsed.content !== "string") {
+      lastStatus = 422;
+      continue;
+    }
+
+    return formatValidatedReply(parsed, finalAttempt.interactionId);
+  }
+
+  // Se a chave for AQ.* (Google Cloud / Vertex Express ou Authorization Key) e a API generativelanguage recusou (400/401/403), tenta imediatamente via Vertex AI Express Mode
+  if (
+    apiKey.startsWith("AQ.") &&
+    (developerApiRejectedAuthKey ||
+      lastStatus === 400 ||
+      lastStatus === 401 ||
+      lastStatus === 403)
+  ) {
+    const vertexAttempt = await callVertexExpressApi({
+      apiKey,
+      systemInstruction,
+      promptText: fullStatelessText,
+      image: validImageObj,
+    });
+
+    if (vertexAttempt.ok && vertexAttempt.rawJsonText) {
+      const parsed = parseStructuredReplySafely(vertexAttempt.rawJsonText);
+      if (parsed && parsed.content && typeof parsed.content === "string") {
+        return formatValidatedReply(parsed, undefined);
+      }
+      lastStatus = 422;
+    } else {
+      lastStatus = vertexAttempt.status;
+      lastErrorSnippet = vertexAttempt.errorSnippet ?? lastErrorSnippet;
+    }
   }
 
   return NextResponse.json({
