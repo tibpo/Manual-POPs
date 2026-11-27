@@ -6,6 +6,7 @@ import {
   buildTicketSummary,
   generateAssistantReply,
   getPlaybookById,
+  type ChatImageAttachment,
   type ChatMessage,
   type CommandSnippet,
 } from "@/lib/aiAssistantEngine";
@@ -16,13 +17,38 @@ interface AiSelfHelpWidgetProps {
   onOpenPop: (code: string) => void;
 }
 
-const QUICK_SUGGESTIONS = [
-  "Resetar IP e DNS no CMD (sem internet)",
-  "Destravar OneDrive (reset avançado)",
-  "Limpeza profunda (%temp% e cache)",
-  "Certificado Digital (A1/A3) não aparece",
-  "Pastas de rede / ERP / VPN",
-  "Descobrir nome da máquina (Hostname)",
+const QUICK_STARTER_OPTIONS = [
+  {
+    label: "🆘 Não sei explicar o problema (me ajude do zero)",
+    prompt:
+      "Sou leigo e não sei explicar direito o problema nem por onde começar. Pode me fazer perguntas simples para descobrir o que está acontecendo?",
+    highlight: true,
+  },
+  {
+    label: "🐢 Computador lento ou travando",
+    prompt: "Meu computador está muito lento ou travando para trabalhar",
+    highlight: false,
+  },
+  {
+    label: "🌐 Internet, Wi-Fi ou site não entra",
+    prompt: "Minha internet, Wi-Fi ou sistema não está abrindo",
+    highlight: false,
+  },
+  {
+    label: "📧 Dúvida ou erro no Outlook / Teams",
+    prompt: "Estou com um problema ou dúvida no e-mail (Outlook) ou no Teams",
+    highlight: false,
+  },
+  {
+    label: "☁️ Meus arquivos / OneDrive com erro",
+    prompt: "Meus arquivos ou a nuvenzinha do OneDrive estão com problema",
+    highlight: false,
+  },
+  {
+    label: "🔧 Comandos rápidos (IP, Cache, Certificado)",
+    prompt: "Quero ver os comandos rápidos seguros de CMD e Executar",
+    highlight: false,
+  },
 ];
 
 function createWelcomeMessage(): ChatMessage {
@@ -30,11 +56,76 @@ function createWelcomeMessage(): ChatMessage {
     id: "welcome-msg",
     role: "assistant",
     content:
-      "Olá! Sou a IA Especialista de Suporte da TI ECOVIS BPO.\n\nAlém de consultar os 38 POPs e preparar seu chamado, também guio você em soluções técnicas mais profundas (como comandos seguros no CMD, reset de IP/DNS, redefinição do OneDrive e limpeza de cache) explicadas passo a passo de forma bem simples!",
+      "Olá! Sou a IA de Autoajuda da TI ECOVIS BPO. 😊\n\nNão sabe o nome técnico do problema ou nem por onde começar? Fique tranquilo! Me conte com suas próprias palavras o que aconteceu — ou cole um print da sua tela com Ctrl + V — que eu descubro junto com você passo a passo.",
     suggestTicket: false,
     askResolutionFeedback: false,
     timestamp: Date.now(),
   };
+}
+
+async function compressImageToAttachment(
+  file: File
+): Promise<ChatImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Falha ao ler imagem"));
+    reader.onload = () => {
+      const resultStr = typeof reader.result === "string" ? reader.result : "";
+      if (!resultStr) {
+        reject(new Error("Imagem vazia"));
+        return;
+      }
+
+      const img = new Image();
+      img.onerror = () => reject(new Error("Formato de imagem inválido"));
+      img.onload = () => {
+        const maxDim = 1280;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width >= height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Falha ao processar imagem"));
+          return;
+        }
+
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+        const commaIdx = dataUrl.indexOf(",");
+        const base64Data = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : "";
+
+        if (!base64Data) {
+          reject(new Error("Falha ao converter imagem"));
+          return;
+        }
+
+        resolve({
+          dataUrl,
+          base64Data,
+          mimeType: "image/jpeg",
+          name: file.name || "print-tela.jpg",
+        });
+      };
+      img.src = resultStr;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 export function AiSelfHelpWidget({
@@ -47,12 +138,17 @@ export function AiSelfHelpWidget({
     createWelcomeMessage(),
   ]);
   const [inputValue, setInputValue] = useState("");
+  const [pendingImage, setPendingImage] = useState<ChatImageAttachment | null>(
+    null
+  );
+  const [imageError, setImageError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const [copiedCmdKey, setCopiedCmdKey] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cmdCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -60,7 +156,7 @@ export function AiSelfHelpWidget({
     if (isOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages, isTyping, isOpen]);
+  }, [messages, isTyping, isOpen, pendingImage]);
 
   useEffect(() => {
     if (isOpen) {
@@ -76,29 +172,80 @@ export function AiSelfHelpWidget({
     };
   }, []);
 
+  const attachFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setImageError("Envie apenas imagens ou prints da tela (PNG, JPG).");
+      return;
+    }
+    setImageError(null);
+    try {
+      const compressed = await compressImageToAttachment(file);
+      setPendingImage(compressed);
+    } catch {
+      setImageError("Não foi possível carregar essa imagem. Tente novamente.");
+    }
+  }, []);
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            void attachFile(file);
+            break;
+          }
+        }
+      }
+    },
+    [attachFile]
+  );
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      void attachFile(file);
+    }
+    e.target.value = "";
+  };
+
   const sendMessage = useCallback(
-    async (rawText: string) => {
+    async (rawText: string, explicitImage?: ChatImageAttachment | null) => {
       const trimmed = rawText.trim();
-      if (!trimmed || isTyping) return;
+      const imageToSend =
+        explicitImage !== undefined ? explicitImage : pendingImage;
+
+      if ((!trimmed && !imageToSend) || isTyping) return;
+
+      const displayContent =
+        trimmed || "📷 Enviei um print da minha tela para você analisar";
 
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: "user",
-        content: trimmed,
+        content: displayContent,
+        imagePreviewUrl: imageToSend?.dataUrl,
         timestamp: Date.now(),
       };
 
       const updatedHistory = [...messages, userMsg];
       setMessages(updatedHistory);
       setInputValue("");
+      setPendingImage(null);
+      setImageError(null);
       setIsTyping(true);
 
       try {
-        await new Promise((resolve) => setTimeout(resolve, 340));
+        await new Promise((resolve) => setTimeout(resolve, 220));
         const reply = await generateAssistantReply({
           userText: trimmed,
           history: updatedHistory,
           currentPopCode,
+          image: imageToSend,
         });
 
         setMessages((prev) => [
@@ -113,7 +260,7 @@ export function AiSelfHelpWidget({
         setIsTyping(false);
       }
     },
-    [currentPopCode, isTyping, messages]
+    [currentPopCode, isTyping, messages, pendingImage]
   );
 
   const triggerAdvancedPlaybook = useCallback(
@@ -125,14 +272,15 @@ export function AiSelfHelpWidget({
       const userMsg: ChatMessage = {
         id: `user-adv-${Date.now()}`,
         role: "user",
-        content: "Quero tentar o diagnóstico avançado passo a passo (CMD / Executar)",
+        content:
+          "Quero tentar o destravamento automático passo a passo (CMD / Executar)",
         timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, userMsg]);
       setIsTyping(true);
 
-      await new Promise((resolve) => setTimeout(resolve, 320));
+      await new Promise((resolve) => setTimeout(resolve, 280));
       setMessages((prev) => [
         ...prev,
         {
@@ -159,12 +307,14 @@ export function AiSelfHelpWidget({
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    void sendMessage(inputValue);
+    void sendMessage(inputValue, pendingImage);
   };
 
   const handleResetChat = () => {
     setMessages([createWelcomeMessage()]);
     setInputValue("");
+    setPendingImage(null);
+    setImageError(null);
     setSummaryCopied(false);
     setCopiedCmdKey(null);
   };
@@ -188,6 +338,8 @@ export function AiSelfHelpWidget({
     return null;
   }
 
+  const lastMessageIndex = messages.length - 1;
+
   return (
     <div
       id="aiSelfHelpWidget"
@@ -195,7 +347,10 @@ export function AiSelfHelpWidget({
     >
       {/* Painel do Chat / Menu de Autoajuda IA */}
       {isOpen && (
-        <div className="fade-in mb-3.5 w-[calc(100vw-2.5rem)] sm:w-[440px] max-h-[min(600px,calc(100vh-9.5rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div
+          onPaste={handlePaste}
+          className="fade-in mb-3.5 w-[calc(100vw-2.5rem)] sm:w-[445px] max-h-[min(620px,calc(100vh-9.5rem))] bg-white border border-stone-200 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        >
           {/* Cabeçalho do Assistente */}
           <div className="bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -217,12 +372,12 @@ export function AiSelfHelpWidget({
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <h3 className="text-sm font-extrabold tracking-tight truncate">
-                    Autoajuda IA • Nível 1 e 2
+                    Guia IA • Suporte Passo a Passo
                   </h3>
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                 </div>
-                <p className="text-[11px] text-white/80 truncate">
-                  POPs, comandos guiados (CMD) e chamado TI
+                <p className="text-[11px] text-white/85 truncate">
+                  Descobre o problema com você • Aceita print da tela
                 </p>
               </div>
             </div>
@@ -231,10 +386,10 @@ export function AiSelfHelpWidget({
               <button
                 type="button"
                 onClick={handleResetChat}
-                title="Reiniciar conversa"
+                title="Recomeçar conversa do zero"
                 className="text-[11px] font-bold bg-white/15 hover:bg-white/25 text-white px-2.5 py-1 rounded-md transition"
               >
-                Limpar
+                Recomeçar
               </button>
               <button
                 type="button"
@@ -270,8 +425,10 @@ export function AiSelfHelpWidget({
 
           {/* Área de Mensagens */}
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-cream/70 min-h-[250px]">
-            {messages.map((msg) => {
+            {messages.map((msg, msgIndex) => {
               const isUser = msg.role === "user";
+              const isLatestAssistant =
+                !isUser && msgIndex === lastMessageIndex && !isTyping;
               const hasCmd = msg.commands?.some((c) => c.whereToRun === "cmd");
               const hasRun = msg.commands?.some((c) => c.whereToRun === "run");
 
@@ -289,93 +446,27 @@ export function AiSelfHelpWidget({
                         : "bg-white text-stoneink border border-stone-200 rounded-bl-sm"
                     }`}
                   >
+                    {msg.imagePreviewUrl && (
+                      <div className="mb-2 overflow-hidden rounded-xl border border-white/25 bg-black/10">
+                        <img
+                          src={msg.imagePreviewUrl}
+                          alt="Print enviado pelo colaborador"
+                          className="max-h-44 w-auto object-contain rounded-xl"
+                        />
+                      </div>
+                    )}
+
                     <p className="whitespace-pre-line break-words">
                       {msg.content}
                     </p>
 
-                    {/* Bloco Interativo de Comandos Guiados (CMD / Win + R) */}
-                    {msg.commands && msg.commands.length > 0 && (
-                      <div className="mt-3 pt-2.5 border-t border-stone-200 space-y-2.5">
-                        {/* Explicação rápida para leigos de como abrir CMD ou Win + R */}
-                        <div className="bg-amber-50/80 border border-amber-200 rounded-lg px-2.5 py-2 text-[11px] text-stone-700 leading-snug space-y-1">
-                          {hasCmd && (
-                            <div>
-                              <strong className="text-stone-900">
-                                Como usar no CMD:
-                              </strong>{" "}
-                              aperte <kbd>Win</kbd> + <kbd>R</kbd>, digite{" "}
-                              <code className="inline-code">cmd</code> e dê{" "}
-                              <strong>Enter</strong>. Na janela preta, clique
-                              com o <strong>botão direito do mouse</strong> para
-                              colar o comando copiado e aperte{" "}
-                              <strong>Enter</strong>.
-                            </div>
-                          )}
-                          {hasRun && (
-                            <div>
-                              <strong className="text-stone-900">
-                                Como usar no Executar:
-                              </strong>{" "}
-                              aperte <kbd>Win</kbd> + <kbd>R</kbd> no teclado,
-                              cole o comando (<kbd>Ctrl</kbd> + <kbd>V</kbd>) e
-                              aperte <strong>Enter</strong>.
-                            </div>
-                          )}
-                        </div>
-
-                        {msg.commands.map((snippet: CommandSnippet, cIdx: number) => {
-                          const cmdKey = `${msg.id}-cmd-${cIdx}`;
-                          const isCopied = copiedCmdKey === cmdKey;
-                          return (
-                            <div
-                              key={cmdKey}
-                              className="rounded-xl border border-stone-200 overflow-hidden bg-stone-50"
-                            >
-                              <div className="px-2.5 py-1.5 bg-stone-100 border-b border-stone-200 flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-extrabold text-stone-800">
-                                  {snippet.label}
-                                </span>
-                                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">
-                                  {snippet.whereToRun === "cmd"
-                                    ? "Prompt (CMD)"
-                                    : "Win + R"}
-                                </span>
-                              </div>
-
-                              <div className="bg-stone-900 text-emerald-300 px-3 py-2 flex items-center justify-between gap-2">
-                                <code className="font-mono text-[11.5px] break-all select-all">
-                                  {snippet.command}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void handleCopyCommand(
-                                      snippet.command,
-                                      cmdKey
-                                    )
-                                  }
-                                  className="shrink-0 bg-white/15 hover:bg-white/25 text-white text-[10.5px] font-bold px-2.5 py-1 rounded transition"
-                                >
-                                  {isCopied ? "✓ Copiado" : "Copiar"}
-                                </button>
-                              </div>
-
-                              <div className="px-2.5 py-1.5 text-[11.5px] text-stone-600 leading-snug">
-                                {snippet.explanation}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Lista de passos práticos complementares */}
+                    {/* Lista de passos visuais simples */}
                     {msg.steps && msg.steps.length > 0 && (
-                      <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-1.5">
+                      <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-2">
                         {msg.steps.map((st, idx) => (
                           <div
                             key={`${msg.id}-st-${idx}`}
-                            className="flex items-start gap-1.5 text-xs text-stone-700"
+                            className="flex items-start gap-2 text-xs text-stone-700 leading-relaxed"
                           >
                             <span className="shrink-0 bg-crimson-light text-crimson border border-crimson-border font-extrabold text-[10px] px-1.5 py-0.5 rounded mt-0.5">
                               {idx + 1}
@@ -386,7 +477,87 @@ export function AiSelfHelpWidget({
                       </div>
                     )}
 
-                    {/* Botão para subir do POP básico direto ao Diagnóstico Avançado (CMD / Executar) */}
+                    {/* Bloco Interativo de Comandos Guiados (CMD / Win + R) */}
+                    {msg.commands && msg.commands.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-stone-200 space-y-2.5">
+                        {/* Explicação passo a passo para leigos de como abrir CMD ou Win + R */}
+                        <div className="bg-amber-50/80 border border-amber-200 rounded-lg px-2.5 py-2 text-[11px] text-stone-700 leading-snug space-y-1">
+                          {hasCmd && (
+                            <div>
+                              <strong className="text-stone-900">
+                                Onde colar (Janela Preta / CMD):
+                              </strong>{" "}
+                              segure a tecla da janelinha <kbd>Win</kbd> e
+                              aperte <kbd>R</kbd>, digite{" "}
+                              <code className="inline-code">cmd</code> e aperte{" "}
+                              <strong>Enter</strong>. Na janela preta que abrir,
+                              clique com o{" "}
+                              <strong>botão direito do mouse</strong> para colar
+                              e aperte <strong>Enter</strong>.
+                            </div>
+                          )}
+                          {hasRun && (
+                            <div>
+                              <strong className="text-stone-900">
+                                Onde colar (Atalho Executar):
+                              </strong>{" "}
+                              segure a tecla da janelinha <kbd>Win</kbd> e
+                              aperte <kbd>R</kbd>, cole o comando copiado (
+                              <kbd>Ctrl</kbd> + <kbd>V</kbd>) e aperte{" "}
+                              <strong>Enter</strong>.
+                            </div>
+                          )}
+                        </div>
+
+                        {msg.commands.map(
+                          (snippet: CommandSnippet, cIdx: number) => {
+                            const cmdKey = `${msg.id}-cmd-${cIdx}`;
+                            const isCopied = copiedCmdKey === cmdKey;
+                            return (
+                              <div
+                                key={cmdKey}
+                                className="rounded-xl border border-stone-200 overflow-hidden bg-stone-50"
+                              >
+                                <div className="px-2.5 py-1.5 bg-stone-100 border-b border-stone-200 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-extrabold text-stone-800">
+                                    {snippet.label}
+                                  </span>
+                                  <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">
+                                    {snippet.whereToRun === "cmd"
+                                      ? "Prompt (CMD)"
+                                      : "Win + R"}
+                                  </span>
+                                </div>
+
+                                <div className="bg-stone-900 text-emerald-300 px-3 py-2 flex items-center justify-between gap-2">
+                                  <code className="font-mono text-[11.5px] break-all select-all">
+                                    {snippet.command}
+                                  </code>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void handleCopyCommand(
+                                        snippet.command,
+                                        cmdKey
+                                      )
+                                    }
+                                    className="shrink-0 bg-white/15 hover:bg-white/25 text-white text-[10.5px] font-bold px-2.5 py-1 rounded transition"
+                                  >
+                                    {isCopied ? "✓ Copiado" : "Copiar"}
+                                  </button>
+                                </div>
+
+                                <div className="px-2.5 py-1.5 text-[11.5px] text-stone-600 leading-snug">
+                                  {snippet.explanation}
+                                </div>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
+                    )}
+
+                    {/* Botão opcional para destravamento avançado quando sugerido em POP local */}
                     {msg.advancedPlaybookId && (
                       <div className="mt-2.5 pt-2 border-t border-stone-100">
                         <button
@@ -399,7 +570,7 @@ export function AiSelfHelpWidget({
                           className="w-full text-left bg-stone-900 hover:bg-stone-800 text-white rounded-lg px-3 py-2 text-xs font-bold transition flex items-center justify-between gap-2 shadow-sm"
                         >
                           <span>
-                            🔧 Tentar diagnóstico avançado (CMD / Executar)
+                            🔧 Tentar destravamento automático (Copiar comando)
                           </span>
                           <span className="text-emerald-300 font-extrabold">
                             →
@@ -408,11 +579,11 @@ export function AiSelfHelpWidget({
                       </div>
                     )}
 
-                    {/* POPs Clicáveis Recomendados */}
+                    {/* POPs Ilustrados Complementares (Opcional) */}
                     {msg.recommendedPops && msg.recommendedPops.length > 0 && (
                       <div className="mt-2.5 pt-2 border-t border-stone-100 space-y-1.5">
                         <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-stone-400">
-                          Procedimentos relacionados no site:
+                          Guia visual ilustrado (opcional):
                         </div>
                         {msg.recommendedPops.map((pop) => (
                           <button
@@ -460,42 +631,71 @@ export function AiSelfHelpWidget({
                       </div>
                     )}
 
-                    {/* Feedback rápido de resolução */}
-                    {msg.askResolutionFeedback && (
-                      <div className="mt-2.5 pt-2 border-t border-stone-100 flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] text-stone-500 mr-1">
-                          Funcionou?
+                    {/* Feedback rápido de resolução (apenas quando não houver quickReplies específicos ou como complemento) */}
+                    {msg.askResolutionFeedback &&
+                      (!msg.quickReplies || msg.quickReplies.length === 0) && (
+                        <div className="mt-2.5 pt-2 border-t border-stone-100 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-stone-500 mr-1">
+                            Deu certo?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void sendMessage("Sim, deu certo!", null)
+                            }
+                            className="text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded transition"
+                          >
+                            ✓ Resolveu
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void sendMessage(
+                                "Não consegui fazer ou não resolveu, me ajuda de um jeito mais fácil?",
+                                null
+                              )
+                            }
+                            className="text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-crimson border border-crimson-border px-2 py-0.5 rounded transition"
+                          >
+                            ✕ Ainda não resolveu
+                          </button>
+                        </div>
+                      )}
+                  </div>
+
+                  {/* Botões Dinâmicos de Resposta Rápida gerados pela IA para guiar o usuário leigo com 1 clique */}
+                  {isLatestAssistant &&
+                    msg.quickReplies &&
+                    msg.quickReplies.length > 0 && (
+                      <div className="mt-2 max-w-[96%] flex flex-col gap-1.5">
+                        <span className="text-[10.5px] font-bold text-stone-500 pl-1">
+                          {msg.isInvestigativeQuestion
+                            ? "👇 Toque na opção mais parecida (ou digite abaixo):"
+                            : "👇 Como foi aí? Toque para continuar:"}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => void sendMessage("Sim, resolveu!")}
-                          className="text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded transition"
-                        >
-                          ✓ Resolveu
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void sendMessage(
-                              "Ainda não resolveu meu problema"
-                            )
-                          }
-                          className="text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-crimson border border-crimson-border px-2 py-0.5 rounded transition"
-                        >
-                          ✕ Ainda não resolveu
-                        </button>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.quickReplies.map((replyOption, rIdx) => (
+                            <button
+                              key={`${msg.id}-qr-${rIdx}`}
+                              type="button"
+                              onClick={() => void sendMessage(replyOption, null)}
+                              className="text-left text-[11.5px] font-semibold bg-white hover:bg-crimson-light text-stone-800 hover:text-crimson border border-crimson-border/90 hover:border-crimson px-3 py-1.5 rounded-xl shadow-sm active:scale-95 transition"
+                            >
+                              {replyOption}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
-                  </div>
                 </div>
               );
             })}
 
-            {/* Sugestões rápidas iniciais / contextuais */}
-            {messages.length <= 2 && !isTyping && (
+            {/* Opções iniciais acolhedoras para quem acabou de abrir o chat */}
+            {messages.length === 1 && !isTyping && (
               <div className="pt-1">
                 <div className="text-[11px] font-bold text-stone-500 mb-1.5">
-                  Diagnósticos rápidos e avançados:
+                  Como prefere começar?
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {currentPopCode && (
@@ -503,22 +703,27 @@ export function AiSelfHelpWidget({
                       type="button"
                       onClick={() =>
                         void sendMessage(
-                          `Segui o ${currentPopCode}, mas não resolveu meu problema`
+                          `Estou olhando o ${currentPopCode}, mas não entendi direito ou não resolveu meu problema. Pode me explicar de um jeito bem simples?`,
+                          null
                         )
                       }
-                      className="text-left text-[11px] font-bold bg-crimson-light hover:bg-rose-100 text-crimson border border-crimson-border px-2.5 py-1 rounded-full transition"
+                      className="w-full text-left text-[11.5px] font-bold bg-crimson-light hover:bg-rose-100 text-crimson border border-crimson-border px-3 py-2 rounded-xl transition"
                     >
-                      🔧 Ir além do {currentPopCode} (Avançado)
+                      🙋 Me explique o {currentPopCode} de um jeito mais fácil
                     </button>
                   )}
-                  {QUICK_SUGGESTIONS.map((item) => (
+                  {QUICK_STARTER_OPTIONS.map((item) => (
                     <button
-                      key={item}
+                      key={item.label}
                       type="button"
-                      onClick={() => void sendMessage(item)}
-                      className="text-left text-[11px] font-semibold bg-white hover:bg-rose-50 text-stone-700 hover:text-crimson border border-stone-200 hover:border-crimson px-2.5 py-1 rounded-full transition"
+                      onClick={() => void sendMessage(item.prompt, null)}
+                      className={
+                        item.highlight
+                          ? "w-full text-left text-[11.5px] font-extrabold bg-crimson/10 hover:bg-crimson/15 text-crimson border border-crimson/35 px-3 py-2 rounded-xl transition"
+                          : "text-left text-[11px] font-semibold bg-white hover:bg-rose-50 text-stone-700 hover:text-crimson border border-stone-200 hover:border-crimson px-2.5 py-1.5 rounded-full transition"
+                      }
                     >
-                      {item}
+                      {item.label}
                     </button>
                   ))}
                 </div>
@@ -529,7 +734,7 @@ export function AiSelfHelpWidget({
               <div className="flex items-start">
                 <div className="bg-white border border-stone-200 rounded-2xl rounded-bl-sm px-3.5 py-2 text-xs text-stone-500 shadow-sm flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-crimson animate-bounce" />
-                  <span>Montando diagnóstico passo a passo...</span>
+                  <span>Analisando com cuidado para te guiar...</span>
                 </div>
               </div>
             )}
@@ -537,22 +742,104 @@ export function AiSelfHelpWidget({
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Campo de digitação */}
+          {/* Pré-visualização de Print / Foto anexada antes do envio */}
+          {(pendingImage || imageError) && (
+            <div className="px-3 py-2 bg-stone-50 border-t border-stone-200 shrink-0">
+              {imageError ? (
+                <div className="flex items-center justify-between text-[11px] text-crimson font-semibold">
+                  <span>{imageError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setImageError(null)}
+                    className="font-extrabold px-1.5"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                pendingImage && (
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <img
+                        src={pendingImage.dataUrl}
+                        alt="Prévia do print"
+                        className="h-10 w-14 object-cover rounded-lg border border-stone-300 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-stone-800 truncate">
+                          Print da tela pronto para análise
+                        </div>
+                        <div className="text-[10px] text-stone-500 truncate">
+                          Clique em Enviar (ou escreva uma observação)
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPendingImage(null)}
+                      aria-label="Remover print anexado"
+                      className="text-xs font-bold text-stone-500 hover:text-crimson bg-white border border-stone-200 rounded-md px-2 py-1 shrink-0"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+
+          {/* Campo de digitação + Botão de Anexar Print */}
           <form
             onSubmit={handleFormSubmit}
-            className="p-2.5 bg-white border-t border-stone-200 flex items-center gap-2 shrink-0"
+            className="p-2.5 bg-white border-t border-stone-200 flex items-center gap-1.5 shrink-0"
           >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isTyping}
+              title="Enviar print ou foto da tela (você também pode colar com Ctrl + V)"
+              aria-label="Enviar print ou foto da tela"
+              className="bg-stone-100 hover:bg-rose-50 text-stone-600 hover:text-crimson border border-stone-200 hover:border-crimson/40 rounded-xl p-2.5 transition shrink-0 disabled:opacity-45"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+
             <input
               ref={inputRef}
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ex: resetar IP no CMD, destravar OneDrive..."
-              className="flex-1 bg-stone-50 text-stoneink placeholder-stone-400 text-xs sm:text-sm rounded-xl px-3.5 py-2.5 border border-stone-200 focus:outline-none focus:border-crimson focus:bg-white transition"
+              placeholder="Conte com suas palavras ou cole print (Ctrl+V)..."
+              className="flex-1 min-w-0 bg-stone-50 text-stoneink placeholder-stone-400 text-xs sm:text-sm rounded-xl px-3 py-2.5 border border-stone-200 focus:outline-none focus:border-crimson focus:bg-white transition"
             />
             <button
               type="submit"
-              disabled={!inputValue.trim() || isTyping}
+              disabled={(!inputValue.trim() && !pendingImage) || isTyping}
               className="bg-crimson hover:bg-crimson-dark disabled:opacity-45 disabled:cursor-not-allowed text-white text-xs font-extrabold px-3.5 py-2.5 rounded-xl shadow-sm transition shrink-0"
             >
               Enviar

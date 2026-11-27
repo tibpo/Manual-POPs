@@ -17,17 +17,29 @@ export interface CommandSnippet {
   explanation: string;
 }
 
+export interface ChatImageAttachment {
+  dataUrl: string;
+  base64Data: string;
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  name?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
+  imagePreviewUrl?: string;
   steps?: string[];
   commands?: CommandSnippet[];
   recommendedPops?: ChatActionPop[];
+  quickReplies?: string[];
+  diagnosedIssue?: string;
+  interactionId?: string;
   advancedPlaybookId?: string;
   suggestTicket?: boolean;
   askResolutionFeedback?: boolean;
   isAdvancedResponse?: boolean;
+  isInvestigativeQuestion?: boolean;
   timestamp: number;
 }
 
@@ -40,6 +52,7 @@ interface AdvancedPlaybook {
   intro: string;
   commands?: CommandSnippet[];
   steps?: string[];
+  quickReplies?: string[];
   safetyNote: string;
 }
 
@@ -99,6 +112,7 @@ const STOPWORDS = new Set([
   "gostaria",
   "ajuda",
   "ajudar",
+  "ajude",
   "problema",
   "problemas",
   "duvida",
@@ -195,6 +209,15 @@ const STOPWORDS = new Set([
   "agora",
   "hoje",
   "ecovis",
+  "sei",
+  "explicar",
+  "comecar",
+  "zero",
+  "leigo",
+  "estranho",
+  "esquisito",
+  "negocio",
+  "coisa",
 ]);
 
 // Termos amplos que ajudam a desempatar, mas jamais validam sozinhos um POP sem o assunto principal
@@ -274,28 +297,32 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: [],
     intro:
-      "Quando a seção ou guia 'Grupos' (ou o painel de pastas) não aparece no Outlook, normalmente é uma mudança de posição entre o Novo Outlook e o Outlook Clássico ou ocultação do painel lateral. Veja como localizar em segundos:",
+      "Quando a seção 'Grupos' ou a lista de pastas some no Outlook, quase sempre o menu lateral apenas ficou recolhido ou mudou de lugar na versão nova. Vamos achar juntos:",
     steps: [
-      "1. No Novo Outlook (visual moderno): 'Grupos' não fica mais como guia no topo — olhe na barra vertical fina bem à esquerda da tela e clique no ícone 'Grupos' (pessoas) ou nos três pontinhos (...) > 'Grupos'.",
-      "2. No Outlook Clássico: role a lista de pastas da esquerda até o final (abaixo de 'Itens Enviados' e 'Lixo Eletrônico') e clique na setinha ao lado de 'Grupos' para expandir. Se a barra lateral inteira sumiu, aperte Ctrl + 6 ou vá em Exibir > Painel de Pastas > Normal.",
-      "3. Se as guias do topo (Página Inicial / Enviar e Receber / Exibir) sumiram: aperte Ctrl + F1 no teclado para fixar novamente a Faixa de Opções completa.",
-      "4. Faça o teste no navegador (outlook.office.com): se os Grupos aparecerem na Web mas não no aplicativo instalado, use o comando de restaurar painel abaixo. Se NÃO aparecerem nem na Web, sua conta ainda precisa ser incluída como membro do Grupo pela TI.",
+      "Olhe bem no canto esquerdo da janela do Outlook: se houver uma barra fininha vertical com desenhos, clique no ícone de duas pessoinhas ('Grupos') ou nos três pontinhos (...).",
+      "Se você usa o Outlook tradicional (com lista de pastas à esquerda): role essa lista até o finalzinho, abaixo de 'Itens Enviados', e clique na setinha ao lado da palavra 'Grupos'. Se a coluna inteira de pastas sumiu, aperte juntas as teclas Ctrl + 6.",
+      "Se o que sumiu foram os botões grandes lá no topo da janela: aperte juntas as teclas Ctrl + F1 para eles voltarem a ficar fixos.",
     ],
     commands: [
       {
-        label: "Opcional — Restaurar Painel de Navegação do Outlook Clássico",
+        label: "Opcional — Restaurar menu lateral de pastas do Outlook",
         whereToRun: "run",
         command: "outlook.exe /resetnavpane",
         explanation:
-          "Feche o Outlook antes e rode no Win + R: recria o menu lateral de pastas e grupos sem apagar nenhum e-mail.",
+          "Feche o Outlook primeiro e rode este comando: ele reorganiza o menu lateral sem apagar nenhum e-mail.",
       },
     ],
+    quickReplies: [
+      "Achei os Grupos, deu certo!",
+      "Não aparece nem no menu esquerdo",
+      "Meus e-mails não estão chegando",
+    ],
     safetyNote:
-      "Se você precisa ser adicionado a um Grupo de e-mail ou Caixa Compartilhada do seu setor, clique em Abrir Chamado abaixo informando o nome do grupo.",
+      "Se o grupo nunca apareceu para você nem pelo navegador (outlook.office.com), peça à TI no chamado abaixo para incluir seu e-mail nesse grupo.",
   },
   {
     id: "outlook-office-safe",
-    title: "Recuperar Outlook, E-mails ou Excel/Word com Falha",
+    title: "Recuperar Outlook, E-mails ou Excel/Word Travados",
     triggers: [
       "outlook",
       "webmail",
@@ -315,10 +342,10 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-031", "POP-007"],
     intro:
-      "Para destravar o Outlook (e-mails presos, falha ao abrir perfil ou tela congelada) ou recuperar planilhas do Excel sem perder dados, siga estas verificações seguras:",
+      "Vamos destravar seu aplicativo do Office de forma bem tranquila e sem risco de perder seus e-mails ou planilhas:",
     steps: [
-      "Se o Outlook abre mas não envia nem recebe e-mails: clique na guia 'Enviar/Receber' no topo e verifique se o botão 'Trabalhar Offline' está marcado (clique nele para desativar e reconectar).",
-      "Teste em Modo de Segurança com os comandos abaixo para isolar suplementos que estejam travando o aplicativo:",
+      "Se o Outlook abre, mas os e-mails não chegam nem saem: olhe na barra bem lá embaixo da janela do Outlook. Se estiver escrito 'Trabalhando Offline', clique na guia 'Enviar/Receber' lá no topo e clique no botão 'Trabalhar Offline' para reconectar.",
+      "Se o Outlook ou Excel nem abre ou congela na hora: use o botão Copiar abaixo para abri-lo em 'Modo Limpo' (sem complementos pesados):",
     ],
     commands: [
       {
@@ -326,22 +353,27 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
         whereToRun: "run",
         command: "outlook.exe /safe",
         explanation:
-          "Clique em OK na janela de perfil. Abre o Outlook limpo sem suplementos externos pesados.",
+          "Quando aparecer uma janelinha pequena escrita 'Escolher Perfil', basta clicar em OK.",
       },
       {
-        label: "Opção B — Abrir o Excel limpo sem suplementos",
+        label: "Opção B — Abrir o Excel limpo sem travar",
         whereToRun: "run",
         command: "excel.exe /safe",
         explanation:
-          "Permite abrir, recuperar e salvar planilhas pesadas quando o Excel fecha sozinho ou congela.",
+          "Ideal para abrir e salvar uma planilha pesada que estava fechando sozinha.",
       },
     ],
+    quickReplies: [
+      "Abriu e voltou a funcionar!",
+      "A guia Grupos/Pastas sumiu no Outlook",
+      "Continua travando mesmo assim",
+    ],
     safetyNote:
-      "Persistindo a falha fora do modo seguro, abra chamado abaixo para a TI executar o Reparo Rápido do Microsoft 365.",
+      "Se continuar fechando sozinho fora do modo seguro, abra um chamado abaixo para a TI reparar o pacote Office remotamente.",
   },
   {
     id: "rede-ip-dns",
-    title: "Reset de Rede, Renovação de IP e Limpeza de DNS via CMD",
+    title: "Destravar Internet, Wi-Fi e Renovação de Rede (IP e DNS)",
     triggers: [
       "resetar ip",
       "renovar ip",
@@ -359,46 +391,56 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "conflito de ip",
       "internet oscilando",
       "sem acesso a rede",
+      "globo cortado",
+      "sem internet",
     ],
     relatedPopCodes: ["POP-029", "POP-021"],
     intro:
-      "Vamos fazer uma renovação limpa da sua conexão pelo Prompt de Comando (CMD). É super seguro, não apaga nada no computador e resolve conflitos de IP e sites que não carregam:",
+      "Vamos renovar a conexão do seu notebook com o roteador! É totalmente seguro, não apaga nada no computador e costuma destravar sites e Wi-Fi na hora:",
+    steps: [
+      "Antes dos comandos, dê uma olhadinha rápida no canto inferior direito da tela (perto do relógio): clique no ícone de Wi-Fi/globo e veja se o 'Modo Avião' não ficou aceso sem querer.",
+    ],
     commands: [
       {
-        label: "Passo 1 — Limpar endereços antigos travados (DNS)",
+        label: "Passo 1 — Limpar caminhos antigos travados (DNS)",
         whereToRun: "cmd",
         command: "ipconfig /flushdns",
         explanation:
-          "Apaga o cache de rotas antigas de sites que ficam presas no Windows.",
+          "Limpa endereços antigos de sites que ficaram presos na memória.",
       },
       {
-        label: "Passo 2 — Liberar o IP atual com falha",
+        label: "Passo 2 — Desconectar endereço antigo com falha",
         whereToRun: "cmd",
         command: "ipconfig /release",
         explanation:
-          "Desconecta por alguns segundos o endereço antigo que estava travado no roteador.",
+          "Solta o número antigo de conexão (a internet pisca por alguns segundos, é normal!).",
       },
       {
-        label: "Passo 3 — Pedir um novo IP limpo ao roteador",
+        label: "Passo 3 — Pegar uma conexão nova e limpa",
         whereToRun: "cmd",
         command: "ipconfig /renew",
         explanation:
-          "Aguarde de 5 a 10 segundos até aparecerem os novos números de IPv4 na tela.",
+          "Espere de 5 a 10 segundos até voltarem a aparecer números novos na janela preta.",
       },
       {
-        label: "Passo 4 — Testar se a comunicação voltou",
+        label: "Passo 4 — Testar se a internet voltou",
         whereToRun: "cmd",
         command: "ping 8.8.8.8 -n 4",
         explanation:
-          "Se aparecer 'Resposta de 8.8.8.8' (0% de perda), sua conexão já está funcionando!",
+          "Se aparecer 'Resposta de 8.8.8.8', sua internet já está funcionando!",
       },
     ],
+    quickReplies: [
+      "A internet voltou, obrigado!",
+      "Não entendi como abrir a janela preta",
+      "Apareceu 'Esgotado o tempo limite'",
+    ],
     safetyNote:
-      "Se na etapa 4 aparecer 'Esgotado o tempo limite' ou 'Falha geral', o bloqueio está no roteador/provedor externo — basta clicar em Abrir Chamado abaixo.",
+      "Se aparecer 'Esgotado o tempo limite', teste se o Wi-Fi funciona no seu celular: se nem no celular funcionar, reinicie o modem/roteador da tomada por 30 segundos.",
   },
   {
     id: "onedrive-reset-profundo",
-    title: "Redefinição Profunda (Hard Reset) do OneDrive",
+    title: "Destravar a Nuvem de Arquivos (OneDrive)",
     triggers: [
       "resetar onedrive",
       "redefinir onedrive",
@@ -409,32 +451,39 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "onedrive nao abre",
       "sincronizacao travou",
       "nuvem nao aparece",
+      "nuvem vermelha",
+      "x vermelho",
     ],
     relatedPopCodes: ["POP-036", "POP-037", "POP-028"],
     intro:
-      "Quando o OneDrive trava em 'Processando alterações' ou não sincroniza mesmo fechando normalmente, você pode rodar o comando oficial de redefinição da Microsoft (não apaga nenhum arquivo seu!):",
+      "Quando a nuvenzinha do OneDrive (perto do relógio) fica com um 'X vermelho' ou presa em 'Processando alterações', este comando oficial da Microsoft destrava tudo sem apagar nenhum arquivo seu:",
     commands: [
       {
-        label: "Passo 1 — Executar redefinição limpa do OneDrive",
+        label: "Passo 1 — Reiniciar a sincronização do OneDrive",
         whereToRun: "run",
         command: "%localappdata%\\Microsoft\\OneDrive\\onedrive.exe /reset",
         explanation:
-          "O ícone da nuvem perto do relógio vai sumir por cerca de 1 minuto enquanto reconstrói o catálogo sem apagar documentos.",
+          "A nuvenzinha perto do relógio vai sumir por 1 minutinho enquanto se reorganiza sozinha.",
       },
       {
-        label: "Passo 2 — Reabrir o OneDrive (caso não volte sozinho após 1 min)",
+        label: "Passo 2 — Abrir a nuvem novamente (se não voltar após 1 min)",
         whereToRun: "run",
         command: "%localappdata%\\Microsoft\\OneDrive\\onedrive.exe",
         explanation:
-          "Religa a nuvem na barra de tarefas e retoma a sincronização limpa.",
+          "Faz a nuvem azul reaparecer perto do relógio sincronizando normalmente.",
       },
     ],
+    quickReplies: [
+      "A nuvem voltou ao normal!",
+      "Pede para eu fazer login no OneDrive",
+      "Continua com X vermelho em um arquivo",
+    ],
     safetyNote:
-      "Fique tranquilo: todos os seus arquivos locais e da nuvem permanecem intactos.",
+      "Fique 100% tranquilo: todas as suas pastas e documentos continuam salvos e intactos.",
   },
   {
     id: "limpeza-profunda-temp",
-    title: "Limpeza Avançada de Cache (%temp% e Limpador Nativo)",
+    title: "Aliviar Notebook Lento ou Travando (Limpeza Segura)",
     triggers: [
       "%temp%",
       "pasta temp",
@@ -446,34 +495,40 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "disco cheio ainda",
       "memoria cheia",
     ],
-    relatedPopCodes: ["POP-001", "POP-002", "POP-004", "POP-030"],
+    relatedPopCodes: ["POP-001", "POP-002", "POP-005", "POP-030"],
     intro:
-      "Além da limpeza básica do Windows, você pode limpar diretamente o cache bruto dos aplicativos abertos — excelente quando o notebook continua pesado ou o SSD segue cheio:",
+      "Quando o notebook fica pesado, demorando para responder a cada clique, normalmente há rascunhos acumulados e memória cheia por dias sem reiniciar. Vamos aliviar agora sem risco para seus documentos:",
+    steps: [
+      "Primeiro, salve o que estiver aberto e clique no botão Iniciar (janelinha do Windows) > Ligar/Desligar > escolha 'Reiniciar' (não clique em 'Desligar', pois só o 'Reiniciar' zera a memória travada!).",
+      "Se continuar pesado depois de reiniciar, limpe a pasta de rascunhos temporários com o atalho abaixo:",
+    ],
     commands: [
       {
-        label: "Passo 1 — Abrir pasta de temporários ocultos do usuário",
+        label: "Passo 1 — Abrir pasta de rascunhos temporários (%temp%)",
         whereToRun: "run",
         command: "%temp%",
         explanation:
-          "Na pasta que abrir, aperte Ctrl + A (selecionar tudo), aperte Delete e, se avisar que algum arquivo está em uso, marque 'Fazer isso para todos' e clique em Ignorar.",
+          "Vai abrir uma pasta cheia de rascunhos antigos do sistema. Aperte Ctrl + A (seleciona tudo), aperte Delete e, se perguntar de arquivos em uso, marque a caixinha e clique em 'Ignorar'.",
       },
       {
-        label: "Passo 2 — Executar o Limpador Clássico do Disco C:",
+        label: "Passo 2 — Limpador automático do Disco C:",
         whereToRun: "run",
         command: "cleanmgr",
         explanation:
-          "Selecione a unidade C:, marque Arquivos Temporários / Miniaturas / Lixeira e clique em OK.",
+          "Dê OK na unidade C:, marque Lixeira / Arquivos Temporários e clique em OK.",
       },
     ],
-    steps: [
-      "Em seguida, vá em Iniciar > Ligar/Desligar > Reiniciar (nunca apenas Desligar) para zerar a memória RAM acumulada.",
+    quickReplies: [
+      "Ficou bem mais rápido!",
+      "Só um programa específico travou",
+      "Continua muito lento mesmo reiniciando",
     ],
     safetyNote:
-      "Esses comandos afetam apenas rascunhos temporários de sistema — nada das suas pastas Documentos, Área de Trabalho ou Downloads é tocado.",
+      "Nada das suas pastas Documentos, Área de Trabalho ou Downloads é apagado por esses passos.",
   },
   {
     id: "certificado-ssl-avancado",
-    title: "Destravar Certificado Digital (A1/A3), SSL, e-CAC e SEFAZ",
+    title: "Destravar Certificado Digital (A1/A3), e-CAC e SEFAZ",
     triggers: [
       "certificado",
       "token",
@@ -493,32 +548,37 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-018", "POP-034"],
     intro:
-      "Quando sites do governo (e-CAC, Receita, SEFAZ, Conectividade) param de pedir ou reconhecer seu Certificado Digital, limpar o Estado SSL do Windows resolve na maioria das vezes:",
+      "Quando sites do governo (e-CAC, Receita, SEFAZ) não mostram a janelinha para escolher o Certificado Digital, limpar a memória de certificados do navegador costuma resolver na hora:",
     commands: [
       {
-        label: "Passo 1 — Limpar o Estado SSL travado no Windows",
+        label: "Passo 1 — Limpar memória SSL travada no Windows",
         whereToRun: "run",
         command: "inetcpl.cpl",
         explanation:
-          "Na janelinha que abrir, clique na aba 'Conteúdo', clique no botão 'Limpar estado SSL' e dê OK. Depois feche TODAS as janelas do navegador e abra de novo.",
+          "Na janelinha que abrir, clique na aba 'Conteúdo' lá em cima, clique no botão 'Limpar estado SSL' e dê OK. Depois feche TODAS as janelas da internet e abra de novo.",
       },
       {
-        label: "Passo 2 — Conferir se o certificado está listado e dentro da validade",
+        label: "Passo 2 — Conferir se o certificado não venceu",
         whereToRun: "run",
         command: "certmgr.msc",
         explanation:
-          "Abra a pasta 'Pessoal' > 'Certificados' à esquerda e confira a coluna 'Data de Expiração'.",
+          "Dê dois cliques na pastinha 'Pessoal' > 'Certificados' à esquerda e veja a data na coluna 'Data de Expiração'.",
       },
     ],
     steps: [
-      "Se for Token USB (A3), conecte direto na porta USB do notebook (sem adaptador/hub) antes de abrir o navegador.",
+      "Se o seu certificado for um pendrive/token físico (A3), tire e coloque direto na entrada USB do próprio notebook (evite adaptadores).",
+    ],
+    quickReplies: [
+      "Apareceu o certificado e entrou!",
+      "Vi aqui que está vencido / não está na lista",
+      "Continua dando erro no site",
     ],
     safetyNote:
-      "Se o certificado estiver vencido ou precisar instalar um novo arquivo .pfx com senha da empresa, abra chamado com a TI.",
+      "Se o certificado estiver vencido ou precisar instalar um certificado novo da empresa, abra chamado abaixo para a TI instalar.",
   },
   {
     id: "rede-corporativa-gpupdate",
-    title: "Recarregar Pastas de Rede, Políticas e Sistemas Internos / ERP",
+    title: "Reconectar Pastas da Rede, VPN e Sistemas Internos / ERP",
     triggers: [
       "pasta de rede",
       "pastas de rede",
@@ -538,32 +598,37 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-021", "POP-034", "POP-033"],
     intro:
-      "Se as pastas da rede sumiram, deram erro de caminho ou o sistema interno não carrega mesmo conectado na VPN/escritório, force a atualização das credenciais de rede:",
+      "Quando pastas compartilhadas da empresa somem ou o sistema interno não abre, primeiro confira se a VPN da empresa está conectada (caso esteja fora do escritório) e rode esta sincronização:",
     commands: [
       {
-        label: "Passo 1 — Atualizar políticas e mapeamentos corporativos",
+        label: "Passo 1 — Reconectar pastas e permissões da empresa",
         whereToRun: "cmd",
         command: "gpupdate /force",
         explanation:
-          "Sincroniza suas permissões e pastas de rede com o servidor (aguarde aparecer 'A atualização da política foi concluída com êxito').",
+          "Aguarde alguns segundos até aparecer 'A atualização da política foi concluída com êxito'.",
       },
       {
-        label: "Passo 2 — Conferir adaptadores de VPN e Wi-Fi",
+        label: "Passo 2 — Conferir conexões de VPN e Wi-Fi",
         whereToRun: "run",
         command: "ncpa.cpl",
         explanation:
-          "Mostra lado a lado se o adaptador da VPN e o Wi-Fi estão realmente conectados ou desativados.",
+          "Abre a tela com os ícones de rede para ver se a VPN e o Wi-Fi estão conectados.",
       },
     ],
     steps: [
-      "Para sistemas web internos dando erro de sessão/403, pressione Ctrl + Shift + N no navegador para testar em guia anônima sem cache antigo.",
+      "Se for um sistema no navegador dando erro de login/403, aperte Ctrl + Shift + N para testar em uma janela limpa (anônima).",
+    ],
+    quickReplies: [
+      "Voltou a abrir normalmente!",
+      "Diz que minha senha/usuário bloqueou",
+      "Continua sem abrir a pasta/sistema",
     ],
     safetyNote:
-      "Caso sua senha de rede ou usuário do sistema tenha bloqueado por tentativas, acione a TI pelo botão abaixo para desbloqueio imediato.",
+      "Se aparecer aviso de conta bloqueada ou falta de permissão na pasta, abra um chamado abaixo que a TI libera rapidamente.",
   },
   {
     id: "teams-audio-camera-reparo",
-    title: "Reparar Microsoft Teams, Câmera e Microfone",
+    title: "Resolver Som, Microfone, Câmera ou Teams em Reuniões",
     triggers: [
       "teams",
       "camera",
@@ -573,32 +638,42 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "microfone nao funciona",
       "sem som no teams",
       "reparar teams",
+      "ninguem me ouve",
+      "nao ouco",
     ],
     relatedPopCodes: ["POP-027", "POP-037"],
     intro:
-      "Se o Microsoft Teams está com tela branca, falhando compartilhamento ou não detecta microfone/câmera, use os atalhos diretos de reparo do Windows:",
+      "Se ninguém ouve você na reunião, está sem som ou o Teams travou, vamos conferir os dois lugares onde o Windows costuma bloquear o áudio/vídeo:",
+    steps: [
+      "Olhe no teclado do notebook se há uma tecla com desenho de microfone cortado ou alto-falante com uma luzinha acesa (aperte-a para destravar o mudo físico).",
+    ],
     commands: [
       {
-        label: "Passo 1 — Abrir painel de Reparo do aplicativo Teams",
-        whereToRun: "run",
-        command: "ms-settings:appsfeatures",
-        explanation:
-          "Na busca da lista, digite 'Teams', clique nos três pontinhos (...) > Opções avançadas > clique em 'Reparar' (não apaga suas conversas).",
-      },
-      {
-        label: "Passo 2 — Verificar bloqueio de privacidade do Microfone",
+        label: "Passo 1 — Liberar permissão do Microfone no Windows",
         whereToRun: "run",
         command: "ms-settings:privacy-microphone",
         explanation:
-          "Confirme se 'Acesso ao microfone' e 'Permitir que os aplicativos acessem o microfone' estão Ativados.",
+          "Veja se os botões 'Acesso ao microfone' e 'Permitir que os aplicativos acessem o microfone' estão ligados (Ativado).",
+      },
+      {
+        label: "Passo 2 — Reparar o aplicativo Microsoft Teams",
+        whereToRun: "run",
+        command: "ms-settings:appsfeatures",
+        explanation:
+          "Digite 'Teams' na busca dessa tela, clique nos 3 pontinhos (...) ao lado dele > Opções avançadas > clique em 'Reparar' (não apaga conversas).",
       },
     ],
+    quickReplies: [
+      "O som/Teams voltou!",
+      "É a câmera que está fechada/escura",
+      "Continua sem funcionar",
+    ],
     safetyNote:
-      "Dica extra: em chamadas de vídeo lentas, clique na nuvem do OneDrive > Engrenagem > Pausar sincronização por 2 horas.",
+      "Para câmera escura, veja bem no topo da tela do notebook se há uma tampinha plástica deslizante fechando a lente!",
   },
   {
     id: "impressora-fila-spooler",
-    title: "Destravar Fila de Impressão e Scanner",
+    title: "Destravar Impressora e Scanner",
     triggers: [
       "impressora",
       "imprimir",
@@ -612,26 +687,31 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-005"],
     intro:
-      "Quando você manda imprimir e nada sai (ou um documento antigo trava toda a fila), acesse o painel clássico de filas:",
+      "Mandou imprimir e não saiu nada? Geralmente um arquivo anterior ficou preso na fila ou o notebook conectou em outra rede Wi-Fi:",
     commands: [
       {
-        label: "Abrir Gerenciador Clássico de Impressoras e Filas",
+        label: "Abrir a Fila de Impressão para limpar documentos presos",
         whereToRun: "run",
         command: "control printers",
         explanation:
-          "Dê dois cliques no ícone da impressora para ver a fila, clique em 'Impressora' no topo e escolha 'Cancelar todos os documentos' se houver itens travados.",
+          "Dê dois cliques no desenho da sua impressora; se houver arquivos parados na lista, clique em 'Impressora' lá no topo > 'Cancelar todos os documentos'.",
       },
     ],
     steps: [
-      "Confirme se o notebook está conectado no Wi-Fi corporativo do escritório (impressoras internas não respondem pelo 4G ou rede visitante).",
-      "Se a impressora aparecer esmaecida ('Offline'), reinicie o Windows em Iniciar > Reiniciar.",
+      "Confira se você está conectado no Wi-Fi interno corporativo (impressoras do escritório não funcionam na rede Visitante ou 4G).",
+      "Veja na própria impressora se não há luz piscando indicando falta de papel ou tampa entreaberta.",
+    ],
+    quickReplies: [
+      "Imprimiu certinho!",
+      "A impressora nem aparece no meu notebook",
+      "Aparece escrita 'Offline'",
     ],
     safetyNote:
-      "Para instalar uma nova impressora de setor no seu notebook, abra um chamado informando o modelo ou o setor.",
+      "Para instalar uma impressora nova no seu notebook, clique em Abrir Chamado abaixo informando seu setor.",
   },
   {
     id: "identificar-maquina-remoto",
-    title: "Descobrir Nome da Máquina (Hostname), Usuário e IP para Suporte",
+    title: "Descobrir o Código do Notebook (Hostname) para a TI",
     triggers: [
       "hostname",
       "nome do computador",
@@ -644,35 +724,28 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-033", "POP-034"],
     intro:
-      "Precisa informar a identificação exata do seu notebook para o analista da TI conectar remotamente? Rode estes comandos rápidos:",
+      "A TI pediu o nome da sua máquina (Hostname) para entrar remotamente e te ajudar? Com um clique abaixo você descobre na hora:",
     commands: [
       {
-        label: "Ver o Nome do Computador (Hostname) na rede",
+        label: "Descobrir o Nome do Computador (Hostname)",
         whereToRun: "cmd",
         command: "hostname",
         explanation:
-          "Exibe em uma linha o código oficial da sua máquina (basta copiar e colar no chamado).",
+          "Vai aparecer uma linha curta com o código do seu notebook — copie esse código e cole no chamado!",
       },
       {
-        label: "Ver seu usuário de rede e domínio",
+        label: "Ver qual usuário está conectado",
         whereToRun: "cmd",
         command: "whoami",
-        explanation: "Mostra exatamente com qual conta corporativa o Windows está logado.",
-      },
-      {
-        label: "Ver seu endereço IPv4 atual",
-        whereToRun: "cmd",
-        command: "ipconfig",
-        explanation:
-          "Procure a linha 'Endereço IPv4' para informar à equipe técnica se solicitado.",
+        explanation: "Mostra o nome do seu login corporativo atual.",
       },
     ],
     safetyNote:
-      "Com o Hostname em mãos, o atendimento remoto da TI é muito mais rápido!",
+      "Com esse código e um print da tela, o analista da TI resolve seu atendimento muito mais rápido!",
   },
   {
     id: "video-apps-nativos",
-    title: "Resetar Driver de Vídeo e Destravar Captura de Tela / Apps do Windows",
+    title: "Ajustar Tela Cortada, Letra Grande/Pequena ou Monitor Externo",
     triggers: [
       "wsreset",
       "print nao funciona",
@@ -682,35 +755,38 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "driver de video",
       "monitor cortado",
       "escala",
+      "letra gigante",
+      "tudo grande",
+      "tela esticada",
+      "segunda tela",
     ],
     relatedPopCodes: ["POP-038", "POP-025", "POP-026", "POP-035"],
     intro:
-      "Se a imagem da tela falhou ou a Ferramenta de Captura (Win + Shift + S) parou de abrir, faça este reset seguro de interface:",
+      "Se o segundo monitor está sem imagem, com bordas cortadas, letras gigantes/distorcidas ou piscando, siga este passo a passo simples:",
     commands: [
       {
-        label: "Abrir Configurações de Exibição Avançada (Ajustar p/ 50 Hz)",
+        label: "Abrir ajustes da Tela / Segundo Monitor",
         whereToRun: "run",
         command: "ms-settings:display",
         explanation:
-          "Atalho direto para Sistema > Tela, onde você pode ajustar Resolução e Exibição Avançada (< 59Hz).",
-      },
-      {
-        label: "Restaurar cache de aplicativos nativos do Windows",
-        whereToRun: "run",
-        command: "wsreset.exe",
-        explanation:
-          "Uma janela preta abrirá por ~10 segundos limpando o cache dos utilitários nativos (Captura, Fotos, Calculadora) sem apagar arquivos.",
+          "Abre direto a tela onde você escolhe o Monitor 2, ajusta a Resolução e, em 'Exibição avançada', coloca a Taxa abaixo de 59Hz (50 Hz) caso a tela esteja cortada.",
       },
     ],
     steps: [
-      "Para reiniciar o driver de vídeo na hora sem fechar seus programas abertos, aperte juntas as teclas: Win + Ctrl + Shift + B (a tela piscará 1 vez e voltará limpa).",
+      "Se a segunda tela está toda preta: aperte a tecla Windows + letra P juntas e clique em 'Estender'.",
+      "Se a tela estiver piscando ou travada visualmente: aperte juntas Windows + Ctrl + Shift + B (a tela dá uma piscadinha rápida de 1 segundo para destravar a imagem sem fechar nada!).",
+    ],
+    quickReplies: [
+      "A tela ficou perfeita agora!",
+      "Diz 'Sem Sinal' no monitor externo",
+      "É o botão de tirar print que parou",
     ],
     safetyNote:
-      "Se o monitor externo continuar sem sinal, teste reconectar o cabo HDMI/USB-C nas duas pontas.",
+      "Se aparecer 'Sem Sinal' no monitor, tire o cabo HDMI da lateral do notebook e encaixe novamente até o fim.",
   },
   {
     id: "instalacao-admin",
-    title: "Instalação de Programas ou Permissão de Administrador",
+    title: "Pediu Senha de Administrador ou Instalar Programa",
     triggers: [
       "instalar",
       "instalacao",
@@ -720,30 +796,31 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
       "admin",
       "uac",
       "pede senha",
+      "pediu senha",
       "licenca",
     ],
     relatedPopCodes: ["POP-033", "POP-020"],
     intro:
-      "Por segurança corporativa na ECOVIS BPO, contas de usuário não possuem senha de Administrador para impedir que malwares se instalem sozinhos.",
+      "Apareceu uma janelinha do Windows pedindo usuário e senha de Administrador? Na ECOVIS BPO isso é uma proteção automática de segurança para impedir que vírus se instalem sozinhos.",
     commands: [
       {
-        label: "Descobrir o Hostname do seu notebook para agilizar a instalação",
+        label: "Ver o código do seu notebook para enviar à TI",
         whereToRun: "cmd",
         command: "hostname",
         explanation:
-          "Copie o nome exibido e informe no chamado junto com o nome do programa que precisa instalar.",
+          "Informe esse código no chamado junto com o nome do programa que você precisa.",
       },
     ],
     steps: [
-      "Clique em 'Copiar resumo p/ chamado' abaixo e informe o software desejado + motivo de uso.",
-      "A TI conectará remotamente para validar e instalar com a credencial administrativa.",
+      "Clique em 'Copiar resumo' abaixo, abra o chamado na TI e diga qual programa precisa instalar ou atualizar.",
+      "Um analista conectará remotamente na sua tela e digitará a credencial da TI para liberar para você!",
     ],
     safetyNote:
-      "Nunca baixe instaladores alternativos ('portáteis' ou de sites de terceiros).",
+      "Nunca tente baixar versões 'portáteis' de sites desconhecidos para contornar o aviso.",
   },
   {
     id: "tela-azul-bitlocker",
-    title: "Tela Azul (BSOD), BitLocker ou Notebook Não Inicia",
+    title: "Tela Azul, Chave BitLocker ou Notebook Não Liga",
     triggers: [
       "tela azul",
       "bsod",
@@ -755,14 +832,14 @@ const ADVANCED_PLAYBOOKS: AdvancedPlaybook[] = [
     ],
     relatedPopCodes: ["POP-032", "POP-014", "POP-034"],
     intro:
-      "Falhas críticas como Tela Azul ou solicitação de Chave de Recuperação do BitLocker exigem preservação das evidências:",
+      "Calma, seus arquivos estão protegidos! Quando aparece uma Tela Azul ou um pedido de 'Chave de Recuperação BitLocker', faça apenas isto:",
     steps: [
-      "Se aparecer tela azul pedindo Chave BitLocker: NÃO clique em restaurar/formatar — tire uma foto nítida da tela com seu celular mostrando o 'ID da Chave' e acione a TI.",
-      "Se o notebook sofreu uma Tela Azul e reiniciou: anote o horário exato do ocorrido para o analista inspecionar os logs internos.",
-      "Mantenha o equipamento conectado à fonte original sobre superfície plana e arejada.",
+      "NÃO clique em opções como 'Restaurar PC' ou 'Formatar' para não perder arquivos locais.",
+      "Pegue seu celular, tire uma foto bem legível da tela inteira (mostrando os números de 'ID da Chave', se houver).",
+      "Deixe o carregador conectado na tomada e chame a TI imediatamente anexando essa foto no chamado.",
     ],
     safetyNote:
-      "Abra chamado imediatamente anexando a foto da tela para atendimento prioritário.",
+      "A TI possui a chave oficial de desbloqueio dessa tela e libera o equipamento rapidamente.",
   },
 ];
 
@@ -791,7 +868,6 @@ const POP_TO_PLAYBOOK_MAP: Record<string, string> = {
   "POP-038": "video-apps-nativos",
 };
 
-// Assuntos específicos que NÃO possuem POP dedicado entre os 38 POPs (evita sugerir POP de Wi-Fi/Pastas por engano!)
 function hasExternalSubjectWithoutDedicatedPop(queryNorm: string): boolean {
   const externalAppSubjects = [
     "outlook",
@@ -816,7 +892,6 @@ function hasExternalSubjectWithoutDedicatedPop(queryNorm: string): boolean {
   );
   if (!mentionsExternal) return false;
 
-  // Exceção legítima: se falar de e-mail/outlook suspeito, golpe, phishing ou boleto falso -> permite POP-016
   if (
     ["phishing", "golpe", "suspeito", "spam", "falso", "virus"].some((w) =>
       textHasPhrase(queryNorm, w)
@@ -828,7 +903,37 @@ function hasExternalSubjectWithoutDedicatedPop(queryNorm: string): boolean {
   return true;
 }
 
-function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): number {
+function isLaypersonHelpFromScratchIntent(queryNorm: string): boolean {
+  const scratchPhrases = [
+    "nao sei explicar",
+    "me ajude do zero",
+    "ajude do zero",
+    "nao sei por onde comecar",
+    "por onde comecar",
+    "sou leigo",
+    "sou leiga",
+    "nao entendo nada",
+    "nao entendo de computador",
+    "nao sei o que aconteceu",
+    "nao sei o que fazer",
+    "socorro",
+    "nao consigo trabalhar",
+    "parou tudo",
+    "deu ruim",
+    "ta tudo estranho",
+    "apareceu um aviso",
+    "apareceu uma janela",
+    "apareceu uma mensagem",
+    "sumiu tudo",
+  ];
+  return scratchPhrases.some((p) => queryNorm.includes(p));
+}
+
+function scorePopMatch(
+  pop: PopItem,
+  queryNorm: string,
+  tokens: string[]
+): number {
   const codeNorm = normalize(pop.code);
   if (textHasPhrase(queryNorm, codeNorm)) {
     return 60;
@@ -869,7 +974,6 @@ function scorePopMatch(pop: PopItem, queryNorm: string, tokens: string[]): numbe
     if (inSteps) strongScore += 2;
   }
 
-  // Sem ao menos 1 palavra específica real do tema do POP, descarta completamente!
   if (matchedSpecificTokens === 0) {
     return 0;
   }
@@ -909,6 +1013,7 @@ function isAdvancedExplicitRequest(queryNorm: string): boolean {
     "avancada",
     "comando",
     "comandos",
+    "comandos rapidos",
     "ipconfig",
     "flushdns",
     "gpupdate",
@@ -964,12 +1069,24 @@ function isPositiveConfirmation(queryNorm: string): boolean {
     "perfeito",
     "show",
     "otimo",
+    "voltou",
   ];
   return (
-    queryNorm.length <= 45 &&
+    queryNorm.length <= 50 &&
     exactOrShort.some((p) => textHasPhrase(queryNorm, p)) &&
     !textHasPhrase(queryNorm, "nao")
   );
+}
+
+function stripHtmlTags(raw: string): string {
+  return raw
+    .replace(/<kbd>(.*?)<\/kbd>/gi, "[$1]")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function formatPlaybookResponse(
@@ -990,6 +1107,8 @@ export function formatPlaybookResponse(
     content: `${introText}\n\n💡 ${playbook.safetyNote}`,
     commands: playbook.commands,
     steps: playbook.steps,
+    quickReplies: playbook.quickReplies,
+    diagnosedIssue: playbook.title,
     recommendedPops: relatedPops.length > 0 ? relatedPops : undefined,
     suggestTicket: true,
     askResolutionFeedback: true,
@@ -1011,8 +1130,17 @@ export function buildTicketSummary(
 ): string {
   const userTexts = messages
     .filter((m) => m.role === "user")
-    .map((m) => m.content.trim())
+    .map((m) =>
+      m.imagePreviewUrl && !m.content.trim()
+        ? "[Colaborador enviou print da tela]"
+        : m.content.trim()
+    )
     .filter(Boolean);
+
+  const latestDiagnosis = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.diagnosedIssue?.trim())
+    ?.diagnosedIssue?.trim();
 
   const suggestedCodes = Array.from(
     new Set(
@@ -1039,19 +1167,24 @@ export function buildTicketSummary(
   const checkedPops =
     suggestedCodes.length > 0
       ? suggestedCodes.join(", ")
-      : "Nenhum POP específico aplicável";
+      : "Triagem direta via IA de Autoajuda";
 
   const lines = [
     "Resumo de Pré-Atendimento (Assistente IA • Portal POPs TI)",
-    `• Relato / Sintoma: ${mainIssue}`,
-    `• POPs consultados: ${checkedPops}`,
   ];
+
+  if (latestDiagnosis) {
+    lines.push(`• Diagnóstico identificado pela IA: ${latestDiagnosis}`);
+  }
+
+  lines.push(
+    `• Relato do colaborador: ${mainIssue}`,
+    `• Procedimentos consultados: ${checkedPops}`
+  );
 
   if (executedCommands.length > 0) {
     lines.push(
-      `• Diagnósticos avançados orientados (CMD/Executar): ${executedCommands.join(
-        " ; "
-      )}`
+      `• Comandos/verificações já orientados: ${executedCommands.join(" ; ")}`
     );
   }
 
@@ -1068,10 +1201,15 @@ export async function generateAssistantReply(params: {
   userText: string;
   history: ChatMessage[];
   currentPopCode: string | null;
+  image?: ChatImageAttachment | null;
 }): Promise<Omit<ChatMessage, "id" | "timestamp">> {
-  const { userText, history, currentPopCode } = params;
+  const { userText, history, currentPopCode, image } = params;
 
-  // Conecta automaticamente na rota /api/chat (Google Gemini gratuito) com fallback transparente para o motor especialista local
+  const prevMsg = history.length >= 2 ? history[history.length - 2] : undefined;
+  const previousInteractionId =
+    prevMsg?.role === "assistant" ? prevMsg.interactionId ?? null : null;
+
+  // Conecta na rota generativa /api/chat (Google Gemini 4 Hydrogen gratuito via Interactions API)
   const externalEndpoint =
     process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT || "/api/chat";
   if (externalEndpoint) {
@@ -1082,7 +1220,14 @@ export async function generateAssistantReply(params: {
         body: JSON.stringify({
           message: userText,
           currentPopCode,
-          history: history.slice(-8).map((m) => ({
+          previousInteractionId,
+          image: image
+            ? {
+                base64Data: image.base64Data,
+                mimeType: image.mimeType,
+              }
+            : null,
+          history: history.slice(-10).map((m) => ({
             role: m.role,
             content: m.content,
           })),
@@ -1090,48 +1235,101 @@ export async function generateAssistantReply(params: {
       });
       if (response.ok) {
         const data = (await response.json()) as {
+          responseMode?: "investigate" | "solve" | "escalate";
           content?: string;
           steps?: string[];
           commands?: CommandSnippet[];
+          quickReplies?: string[];
           popCodes?: string[];
+          diagnosedIssue?: string;
           suggestTicket?: boolean;
+          interactionId?: string;
         };
         if (data.content) {
-          const recommendedPops = (data.popCodes ?? [])
-            .map((code) => POPS.find((p) => p.code === code))
-            .filter((p): p is PopItem => Boolean(p))
-            .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
+          const isInvestigative = data.responseMode === "investigate";
+          const isEscalate = data.responseMode === "escalate";
+
+          const recommendedPops = isInvestigative
+            ? []
+            : (data.popCodes ?? [])
+                .map((code) => POPS.find((p) => p.code === code))
+                .filter((p): p is PopItem => Boolean(p))
+                .map((p) => ({ code: p.code, title: p.title, goal: p.goal }));
 
           return {
             role: "assistant",
             content: data.content,
             steps: data.steps,
             commands: data.commands,
+            quickReplies: data.quickReplies,
+            diagnosedIssue: data.diagnosedIssue,
+            interactionId: data.interactionId,
             recommendedPops:
               recommendedPops.length > 0 ? recommendedPops : undefined,
-            suggestTicket: data.suggestTicket ?? true,
-            askResolutionFeedback: true,
+            suggestTicket: isInvestigative
+              ? false
+              : isEscalate || Boolean(data.suggestTicket),
+            askResolutionFeedback: !isInvestigative,
+            isInvestigativeQuestion: isInvestigative,
           };
         }
       }
     } catch {
-      // Continua automaticamente no motor especialista local
+      // Continua automaticamente no motor especialista local em caso de queda de rede
     }
   }
 
+  // =========================================================================
+  // MOTOR DE CONTINGÊNCIA LOCAL (OFFLINE / SEM CHAVE) COM TRIAGEM P/ LEIGOS
+  // =========================================================================
   const queryNorm = normalize(userText);
   const tokens = queryNorm
     .split(" ")
     .filter((t) => t.length >= 2 && !STOPWORDS.has(t));
+
+  if (image && tokens.length === 0) {
+    return {
+      role: "assistant",
+      content:
+        "Recebi o seu print! No momento estou operando em modo rápido offline e não consigo ler a imagem diretamente, mas eu te ajudo a resolver agora mesmo!\n\nMe diga em uma frase simples onde esse aviso apareceu (ou clique em uma das opções abaixo):",
+      quickReplies: [
+        "Apareceu no E-mail (Outlook) ou Teams",
+        "É na Internet / navegador não abre",
+        "Pediu senha de Administrador",
+        "A tela travou ou ficou estranha",
+      ],
+      suggestTicket: false,
+      askResolutionFeedback: false,
+      isInvestigativeQuestion: true,
+    };
+  }
 
   // 1. Confirmação positiva
   if (isPositiveConfirmation(queryNorm)) {
     return {
       role: "assistant",
       content:
-        "Perfeito! Que ótimo que deu certo. Sempre que precisar de um passo a passo rápido ou comando de diagnóstico, estou por aqui!",
+        "Que notícia ótima! Fico feliz que conseguimos resolver juntos. 😊\n\nSe surgir qualquer outra dúvida — mesmo que não saiba o nome técnico — é só me chamar aqui!",
       suggestTicket: false,
       askResolutionFeedback: false,
+    };
+  }
+
+  // 2. Triagem acolhedora para usuário totalmente leigo ("não sei explicar", "me ajude do zero", etc.)
+  if (isLaypersonHelpFromScratchIntent(queryNorm)) {
+    return {
+      role: "assistant",
+      content:
+        "Fique super tranquilo! Você não precisa saber nenhum nome técnico — eu vou descobrir junto com você passo a passo. 😊\n\nOlhando para o seu notebook agora, qual destas situações chega mais perto do que está acontecendo?",
+      quickReplies: [
+        "Tudo muito lento ou tela congelou",
+        "Internet / site / sistema não entra",
+        "Problema no E-mail (Outlook) ou Reunião",
+        "Meus arquivos / nuvem (OneDrive) sumiram",
+      ],
+      suggestTicket: false,
+      askResolutionFeedback: false,
+      isInvestigativeQuestion: true,
     };
   }
 
@@ -1145,7 +1343,6 @@ export async function generateAssistantReply(params: {
     ? `POP-${explicitPopMatch[1].padStart(3, "0")}`
     : null;
 
-  // Pontua Playbooks Especialistas / Nível 2
   let bestPlaybook: AdvancedPlaybook | null = null;
   let bestPlaybookScore = 0;
 
@@ -1157,24 +1354,33 @@ export async function generateAssistantReply(params: {
     }
   }
 
-  // 2. Se o usuário pediu explicitamente algo avançado (CMD, resetar IP, %temp%, gpupdate, etc.)
+  // 3. Pedido explícito de comandos rápidos / avançados
   if (isAdvancedExplicitRequest(queryNorm)) {
     if (bestPlaybook) {
       return formatPlaybookResponse(bestPlaybook);
     }
-    const netPlaybook = ADVANCED_PLAYBOOKS.find((p) => p.id === "rede-ip-dns")!;
-    return formatPlaybookResponse(
-      netPlaybook,
-      "Posso te guiar em diagnósticos avançados por CMD e Executar (Win + R) explicando cada passo de forma simples! Começando pelo campeão de resoluções de rede/IP (ou me diga se o problema é OneDrive, Outlook, Lentidão/Cache, Certificado ou Pastas de Rede):"
-    );
+    return {
+      role: "assistant",
+      content:
+        "Posso te passar comandos seguros e prontos para copiar (sem precisar de senha de Administrador)! Qual área você quer destravar agora?",
+      quickReplies: [
+        "Resetar IP e DNS (Internet)",
+        "Destravar OneDrive (nuvem)",
+        "Limpeza de cache (%temp%)",
+        "Certificado Digital (e-CAC / SEFAZ)",
+      ],
+      suggestTicket: false,
+      askResolutionFeedback: false,
+      isInvestigativeQuestion: true,
+    };
   }
 
-  // 3. Se o assunto é explicitamente uma ferramenta fora dos 38 POPs (ex.: Outlook, Impressora, Certificado, ERP)
+  // 4. Ferramenta externa sem POP dedicado
   if (hasExternalSubjectWithoutDedicatedPop(queryNorm) && bestPlaybook) {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 4. Quando o usuário diz que "não resolveu" / "já tentei"
+  // 5. Quando o usuário diz que "não resolveu" ou "não achou o botão"
   if (isUnresolvedOrEscalationIntent(queryNorm)) {
     const refPop =
       explicitPopCode ??
@@ -1192,9 +1398,7 @@ export async function generateAssistantReply(params: {
     if (mappedPlaybook && !alreadySentAdvanced) {
       return formatPlaybookResponse(
         mappedPlaybook,
-        refPop
-          ? `Como o passo a passo básico do ${refPop} não foi suficiente, vamos subir para um diagnóstico um pouco mais avançado (mas bem simples de aplicar):`
-          : "Entendi! Antes de você precisar esperar pelo atendimento de um chamado, podemos tentar este procedimento técnico Nível 2 explicado passo a passo:"
+        "Sem problema! Quando o caminho comum não resolve, podemos tentar este destravamento automático bem simples (basta copiar e colar):"
       );
     }
 
@@ -1204,26 +1408,21 @@ export async function generateAssistantReply(params: {
     return {
       role: "assistant",
       content:
-        "Você já realizou todas as verificações recomendadas (inclusive de nível avançado)! Nesse caso, o problema exige intervenção administrativa da TI.\n\nPara o analista resolver bem rápido no acesso remoto, descubra o nome da sua máquina com o comando abaixo, clique em 'Copiar resumo' e abra o chamado:",
+        "Como já fizemos todas as tentativas seguras que não exigem senha da TI, o melhor caminho agora é nossa equipe conectar na sua tela para resolver por você!\n\nJá deixei o resumo da nossa conversa pronto — basta clicar em 'Copiar resumo' abaixo e abrir o chamado:",
       commands: hostPlaybook ? [hostPlaybook.commands![0]] : undefined,
       steps: [
-        "Tire um print da tela inteira com Win + Shift + S mostrando o erro.",
-        "Clique em 'Copiar resumo' abaixo — ele já inclui os POPs e comandos que você testou para você não precisar digitar tudo de novo!",
+        "Clique no botão 'Copiar resumo' logo abaixo para não precisar explicar tudo de novo.",
+        "Clique em 'Ir p/ Portal de Chamados' e cole o resumo lá (se puder, anexe também uma foto/print da tela).",
       ],
-      recommendedPops: [
-        {
-          code: "POP-033",
-          title: "Como abrir um chamado de TI",
-          goal: "Para padronizar solicitações de suporte",
-        },
-      ],
+      diagnosedIssue:
+        "Caso persistente após triagem guiada (requer acesso remoto / permissão administrativa da TI)",
       suggestTicket: true,
       askResolutionFeedback: false,
       isAdvancedResponse: true,
     };
   }
 
-  // 5. Pontua todos os 38 POPs apenas com palavras de domínio real
+  // 6. Pontua POPs com palavras reais e entrega os passos JÁ EXPLICADOS no chat (para o leigo não depender de abrir manual!)
   const scoredPops = POPS.map((pop) => ({
     pop,
     score: scorePopMatch(pop, queryNorm, tokens),
@@ -1231,7 +1430,6 @@ export async function generateAssistantReply(params: {
     .filter((item) => item.score >= 10)
     .sort((a, b) => b.score - a.score);
 
-  // Se um Playbook Especialista teve correspondência mais forte que os POPs, prioriza o Playbook
   if (
     bestPlaybook &&
     bestPlaybookScore >= 15 &&
@@ -1240,28 +1438,32 @@ export async function generateAssistantReply(params: {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  // 6. Se encontrou POPs genuinamente aderentes ao mesmo assunto
   const unseenMatches = scoredPops.filter(
     (item) => !previouslySuggestedCodes.has(item.pop.code)
   );
   const topMatches = (
     unseenMatches.length > 0 ? unseenMatches : scoredPops
-  ).slice(0, 3);
+  ).slice(0, 2);
 
   if (topMatches.length > 0 && topMatches[0].score >= 12) {
     const primary = topMatches[0].pop;
     const theme = THEMES.find((t) => t.id === primary.themeId);
-    const plainQuickSteps = primary.steps.slice(0, 3).map((s) => s.lead);
+    const fullPlainSteps = primary.steps
+      .slice(0, 4)
+      .map((s) => `${s.lead}: ${stripHtmlTags(s.text)}`);
     const linkedPlaybookId = POP_TO_PLAYBOOK_MAP[primary.code];
 
     return {
       role: "assistant",
-      content: `Encontrei o procedimento ideal (${primary.code}${
-        theme ? ` • Tema ${theme.num}` : ""
-      }): "${
-        primary.title
-      }".\n\nSiga o resumo abaixo, abra o POP ilustrado ou, se já tiver tentado o básico, clique em "🔧 Tentar diagnóstico avançado (CMD/Executar)":`,
-      steps: plainQuickSteps,
+      content: `Entendi o que está acontecendo! Vou te guiar de um jeito bem fácil agora mesmo (nem precisa procurar no manual, já separei cada passo aqui embaixo):`,
+      steps: fullPlainSteps,
+      diagnosedIssue: `${primary.title} (${primary.code}${
+        theme ? ` • ${theme.name}` : ""
+      })`,
+      quickReplies: [
+        "Deu certo, resolveu!",
+        "Ainda não resolveu, tentar outro jeito",
+      ],
       recommendedPops: topMatches.map(({ pop }) => ({
         code: pop.code,
         title: pop.title,
@@ -1273,35 +1475,23 @@ export async function generateAssistantReply(params: {
     };
   }
 
-  // 7. Se ainda teve aderência válida a um Playbook ou a um POP secundário (>= 10)
   if (bestPlaybook && bestPlaybookScore > 0) {
     return formatPlaybookResponse(bestPlaybook);
   }
 
-  if (topMatches.length > 0) {
-    const primary = topMatches[0].pop;
-    return {
-      role: "assistant",
-      content: `O procedimento mais próximo no catálogo é o ${primary.code}: "${primary.title}". Se sua dúvida for sobre outro sistema ou função específica, me detalhe qual programa está usando ou abra chamado direto com a TI abaixo:`,
-      steps: primary.steps.slice(0, 3).map((s) => s.lead),
-      recommendedPops: [
-        { code: primary.code, title: primary.title, goal: primary.goal },
-      ],
-      suggestTicket: true,
-      askResolutionFeedback: true,
-    };
-  }
-
-  // 8. Fallback honesto (sem inventar POPs desconexos!)
+  // 7. Pergunta investigativa amigável quando o texto foi muito curto ou vago
   return {
     role: "assistant",
     content:
-      "Não encontrei um POP específico para essa questão exata no catálogo, e prefiro não chutar uma resposta fora de contexto! Me diga qual aplicativo aparece na tela ou qual mensagem surgiu (ex.: Outlook, Excel, OneDrive, Wi-Fi, Monitor, Certificado Digital), ou clique abaixo para falar direto com a TI:",
-    steps: [
-      "Dica rápida: você pode pedir diagnósticos como 'guia grupos no outlook', 'resetar ip no cmd', 'onedrive processando alterações', 'certificado digital não aparece' ou 'erro de escala no monitor'.",
-      "Para atendimento humano rápido, clique em 'Copiar resumo' e depois em 'Abrir Chamado na TI'.",
+      "Quero ter certeza de te dar o caminho certinho sem chutar! Me conta só mais um detalhe (ou toque em uma opção abaixo): onde exatamente isso está acontecendo na sua tela?",
+    quickReplies: [
+      "O notebook está lento ou travado",
+      "A internet ou um site não abre",
+      "No E-mail (Outlook), Excel ou Teams",
+      "Apareceu uma mensagem de erro estranha",
     ],
-    suggestTicket: true,
+    suggestTicket: false,
     askResolutionFeedback: false,
+    isInvestigativeQuestion: true,
   };
 }
