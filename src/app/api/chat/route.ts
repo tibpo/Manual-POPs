@@ -448,14 +448,14 @@ function cleanApiKeyCandidate(raw?: string | null): string | null {
   return unquoted.length >= 25 ? unquoted : null;
 }
 
-// Lê explicitamente process.env.GEMINI_API_KEY (compatível com o compilador da Vercel/Next.js) e variações comuns
+// Lê explicitamente process.env.Manual_POPs_Ecovis (compatível com o compilador da Vercel/Next.js) e variações comuns
 function resolveServerGeminiApiKey(): {
   key: string | null;
   source: string | null;
 } {
   const explicitEntries: Array<[string, string | undefined]> = [
-    ["GEMINI_API_KEY", process.env.GEMINI_API_KEY],
-    ["NEXT_PUBLIC_GEMINI_API_KEY", process.env.NEXT_PUBLIC_GEMINI_API_KEY],
+    ["Manual_POPs_Ecovis", process.env.Manual_POPs_Ecovis],
+    ["NEXT_PUBLIC_Manual_POPs_Ecovis", process.env.NEXT_PUBLIC_Manual_POPs_Ecovis],
     ["GOOGLE_API_KEY", process.env.GOOGLE_API_KEY],
     [
       "GOOGLE_GENERATIVE_AI_API_KEY",
