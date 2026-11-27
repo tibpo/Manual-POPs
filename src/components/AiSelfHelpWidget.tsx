@@ -81,16 +81,16 @@ async function prepareHighDefScreenshot(
       const img = new Image();
       img.onerror = () => reject(new Error("Formato de imagem inválido"));
       img.onload = () => {
-        const maxDim = 2560;
+        const maxDim = 1920;
         const isAllowedNativeMime =
           file.type === "image/png" ||
           file.type === "image/webp" ||
           file.type === "image/jpeg";
 
-        // Se o print já tem tamanho seguro (<= 2.4 MB) e até 2560px, mantém 100% os pixels originais sem nenhuma compressão (leitura de texto cristalina!)
+        // Se o print já é Full HD (<= 1920px) e até 1.4 MB, envia o PNG original sem mexer em 1 pixel (nitidez 100% e leve na Vercel!)
         if (
           isAllowedNativeMime &&
-          file.size <= 2_400_000 &&
+          file.size <= 1_400_000 &&
           img.width <= maxDim &&
           img.height <= maxDim
         ) {
@@ -139,15 +139,19 @@ async function prepareHighDefScreenshot(
         ctx.fillRect(0, 0, width, height);
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Tenta WebP de altíssima definição (0.95) que preserva nitidez de letras sem estourar o limite de 4.5MB da Vercel
-        let finalDataUrl = canvas.toDataURL("image/webp", 0.95);
+        let finalDataUrl = canvas.toDataURL("image/webp", 0.9);
         let finalMime: "image/webp" | "image/jpeg" = "image/webp";
 
         if (
           !finalDataUrl.startsWith("data:image/webp") ||
-          finalDataUrl.length > 3_800_000
+          finalDataUrl.length > 2_600_000
         ) {
-          finalDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+          finalDataUrl = canvas.toDataURL("image/jpeg", 0.88);
+          finalMime = "image/jpeg";
+        }
+
+        if (finalDataUrl.length > 2_800_000) {
+          finalDataUrl = canvas.toDataURL("image/jpeg", 0.78);
           finalMime = "image/jpeg";
         }
 

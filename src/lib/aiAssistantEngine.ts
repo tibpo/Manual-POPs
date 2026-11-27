@@ -1210,6 +1210,7 @@ export function buildTicketSummary(
 interface ApiChatPayload {
   fallback?: boolean;
   reason?: string;
+  detail?: string;
   responseMode?: "investigate" | "solve" | "escalate";
   screenTranscription?: string;
   content?: string;
@@ -1235,19 +1236,15 @@ export async function generateAssistantReply(params: {
     prevMsg?.role === "assistant" ? prevMsg.interactionId ?? null : null;
 
   let fallbackReason: string | null = null;
+  let fallbackDetail: string | null = null;
 
   const externalEndpoint =
     process.env.NEXT_PUBLIC_AI_CHAT_ENDPOINT || "/api/chat";
 
   if (externalEndpoint) {
-    // Em envio de print, permite até 2 tentativas automáticas (caso haja pico momentâneo na cota gratuita por minuto)
-    const maxAttempts = image ? 2 : 1;
+    const maxAttempts = 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) {
-        await new Promise((resolve) => setTimeout(resolve, 1600));
-      }
-
       try {
         const response = await fetch(externalEndpoint, {
           method: "POST",
@@ -1263,7 +1260,7 @@ export async function generateAssistantReply(params: {
                   mimeType: image.mimeType,
                 }
               : null,
-            history: history.slice(-8).map((m) => ({
+            history: history.slice(-6).map((m) => ({
               role: m.role,
               content: m.content,
             })),
@@ -1304,9 +1301,7 @@ export async function generateAssistantReply(params: {
           }
 
           fallbackReason = data.reason ?? "upstream_unavailable";
-          if (fallbackReason === "missing_api_key") {
-            break;
-          }
+          fallbackDetail = data.detail ?? null;
         } else {
           fallbackReason = `http_${response.status}`;
         }
@@ -1316,14 +1311,29 @@ export async function generateAssistantReply(params: {
     }
   }
 
-  // Se o envio de imagem não pôde ser processado momentaneamente, oferece botão direto de reanálise sem nunca pedir chave ao usuário
   if (image) {
+    const diagInfo = fallbackReason ? ` (${fallbackReason})` : "";
+    let friendlyReason =
+      `Não foi possível concluir a leitura óptica agora${diagInfo}. Clique abaixo para tentar novamente:`;
+
+    if (fallbackReason === "rate_limited") {
+      friendlyReason =
+        "A cota gratuita por minuto do Google Gemini atingiu o limite de envios simultâneos. Aguarde cerca de 15 segundos e clique no botão abaixo para ler seu print:";
+    } else if (fallbackReason === "http_413") {
+      friendlyReason =
+        "Essa captura de tela ficou grande demais para envio direto. Dica: aperte Win + Shift + S e recorte apenas a área da janela do erro!";
+    } else if (fallbackReason === "http_504" || fallbackReason === "upstream_504") {
+      friendlyReason =
+        "O servidor demorou mais de 10 segundos para processar a imagem inteira. Clique abaixo para tentar novamente (ou recorte apenas a janela do erro com Win + Shift + S para leitura instantânea):";
+    } else if (fallbackReason?.startsWith("api_rejected_")) {
+      friendlyReason = `O Google Gemini recusou a chamada (${fallbackReason}${
+        fallbackDetail ? `: ${fallbackDetail}` : ""
+      }). Verifique se a chave criada no Google AI Studio está sem restrição de IP/domínio.`;
+    }
+
     return {
       role: "assistant",
-      content:
-        fallbackReason === "missing_api_key"
-          ? "A variável de ambiente da IA foi atualizada recentemente e aguarda o novo deploy entrar em vigor (ou o `.env.local` caso esteja em `localhost`). Clique abaixo para tentar reanalisar ou escolha onde o erro apareceu:"
-          : "Houve uma oscilação momentânea ao ler a imagem em alta definição. Clique no botão abaixo para ler seu print novamente:",
+      content: friendlyReason,
       retryPayload: {
         userText,
         image,

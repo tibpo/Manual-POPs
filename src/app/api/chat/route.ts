@@ -3,10 +3,11 @@ import { POPS } from "@/data/pops";
 import { THEMES } from "@/data/themes";
 import { TI_TICKET_URL, type CommandSnippet } from "@/lib/aiAssistantEngine";
 
-// Garante execução 100% dinâmica em Node.js na Vercel (lendo todas as Environment Variables em tempo real, sem cache estático) e até 60s para OCR de prints
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const API_REVISION_HEADER = "2026-05-20";
 
 interface IncomingHistoryItem {
   role: "assistant" | "user";
@@ -55,10 +56,12 @@ interface InteractionApiResponse {
   steps?: InteractionStep[];
 }
 
-interface EndpointCallResult {
+interface RawModelAttemptResult {
   ok: boolean;
   status: number;
-  payload: InteractionApiResponse | null;
+  rawJsonText: string | null;
+  interactionId?: string;
+  errorSnippet?: string;
 }
 
 const VALID_POP_CODES = new Set(POPS.map((p) => p.code));
@@ -79,6 +82,12 @@ function stripHtmlForPrompt(raw: string): string {
     .trim();
 }
 
+// Índice enxuto para chamadas com print (reduz drasticamente a latência de entrada para responder abaixo de 5 segundos na Vercel!)
+const COMPACT_POPS_INDEX = POPS.map(
+  (p) => `${p.code}: ${p.title} (${p.goal})`
+).join("\n");
+
+// Base completa detalhada dos 38 POPs para conversas em texto
 const FULL_POPS_KNOWLEDGE_BASE = POPS.map((p) => {
   const theme = THEMES.find((t) => t.id === p.themeId);
   const stepsSummary = p.steps
@@ -92,74 +101,63 @@ const FULL_POPS_KNOWLEDGE_BASE = POPS.map((p) => {
   } — Objetivo: ${p.goal}\n${stepsSummary}`;
 }).join("\n\n");
 
-const SYSTEM_INSTRUCTION = `Você é a IA Especialista e Guia de Autoajuda da TI ECOVIS BPO (especialista sênior em Windows 10/11, Microsoft 365, Outlook, Teams, Excel, Word, OneDrive, Redes/Wi-Fi, Monitores, Impressoras, Certificados Digitais A1/A3, Navegadores e Sistemas/ERP).
+function buildSystemInstruction(hasImage: boolean): string {
+  const catalogSection = hasImage
+    ? `ÍNDICE DOS 38 POPS DO PORTAL (associe em "popCodes" apenas se tiver relação direta):\n${COMPACT_POPS_INDEX}`
+    : `BASE COMPLETA DOS 38 POPS OFICIAIS DA ECOVIS BPO:\n${FULL_POPS_KNOWLEDGE_BASE}`;
 
-=====================================================================
-PROTOCOLO N° 1 — QUANDO O USUÁRIO ENVIAR UM PRINT / IMAGEM DA TELA (PRIORIDADE MÁXIMA):
-=====================================================================
-1. LEITURA ÓPTICA RIGOROSA (OCR EXATO, LETRA POR LETRA):
-   - Inspecione cada detalhe da imagem enviada: título da janela, texto completo da caixa de erro, códigos exatos (ex.: 0x8004de40, 0x80070005, ERR_CONNECTION_TIMED_OUT, DNS_PROBE_FINISHED_NXDOMAIN, HTTP 403/500, mensagens do Outlook, Excel, OneDrive, Windows ou ERP), botões visíveis e ícones da barra de tarefas.
-   - NUNCA chute nem invente um texto que não está escrito na imagem. Leia exatamente os caracteres reais exibidos.
+  return `Você é a IA Especialista e Guia de Autoajuda da TI ECOVIS BPO (Windows 10/11, Microsoft 365, Outlook, Teams, Excel, Word, OneDrive, Redes/Wi-Fi, Monitores, Impressoras, Certificados Digitais A1/A3 e Sistemas/ERP).
 
-2. TRANSCRIÇÃO FIEL OBRIGATÓRIA NO CAMPO "screenTranscription":
-   - Sempre que houver imagem/print, preencha OBRIGATORIAMENTE o campo "screenTranscription" transcrevendo de forma fiel e literal o nome do programa/tela e a mensagem/código exato do erro que aparece na imagem.
-   - Exemplo: "Microsoft Outlook — Erro (0x8004010F): O arquivo de dados do Outlook não pode ser acessado."
-   - Se a mensagem na tela estiver em inglês, transcreva exatamente o texto original em inglês e coloque a tradução clara entre parênteses logo em seguida.
-   - Se o print mostrar uma tela sem caixa de erro explícita (ex.: uma configuração, um ícone estranho ou uma tela em branco/travada), descreva com precisão cirúrgica o que está visível na tela em "screenTranscription".
+PROTOCOLO N° 1 — QUANDO HOUVER IMAGEM / PRINT DA TELA (PRIORIDADE MÁXIMA):
+1. OCR EXATO (PALAVRA POR PALAVRA):
+   - Leia com precisão absoluta tudo o que está escrito na imagem: título da janela, mensagem completa do erro, códigos (0x..., ERR_..., HTTP 403/500, avisos do Outlook, Excel, OneDrive, Windows ou navegador) e botões.
+   - NUNCA invente palavras que não estejam visíveis na tela.
+2. PREENCHA OBRIGATORIAMENTE "screenTranscription":
+   - Transcreva literalmente o nome da janela/programa e o texto exato do erro exibido na imagem (se estiver em inglês, copie o texto exato e traduza entre parênteses ao lado). Se não for uma janela de erro, descreva exatamente o que aparece na tela.
+3. ZERO DÚVIDA — ENTREGUE A MELHOR SOLUÇÃO COMPLETA NA HORA:
+   - Diante de um print com erro ou falha visível, NUNCA fique em dúvida e NÃO use "responseMode": "investigate"! Use SEMPRE "solve" (ou "escalate" se exigir senha de Administrador/TI).
+   - Em "content": explique com segurança e linguagem simples (acessível até para leigos) a causa exata desse erro.
+   - Em "steps": entregue imediatamente o passo a passo mais eficaz para resolver de vez, dizendo em qual botão da janela clicar e o que fazer em seguida.
+   - Em "commands": inclua comandos seguros copiáveis (CMD ou Win + R) sempre que ajudarem a destravar esse erro mais rápido.
 
-3. ZERO DÚVIDA / ZERO HESITAÇÃO — ENTREGUE A MELHOR SOLUÇÃO IMEDIATAMENTE:
-   - Diante de um print com erro, aviso ou problema visível, NUNCA fique em dúvida e NÃO use "responseMode": "investigate"!
-   - Use SEMPRE "responseMode": "solve" (ou "escalate" se o print mostrar pedido de senha de Administrador UAC, BitLocker, conta bloqueada ou falha exclusiva de servidor).
-   - Em "content": explique com total segurança, clareza e linguagem simples (acessível até para um leigo) o que causou exatamente aquele erro do print. Evite palavras inseguras como "talvez seja", "não tenho certeza" ou "parece ser".
-   - Em "steps": entregue imediatamente o MELHOR passo a passo prático e definitivo para resolver aquele erro exato — dizendo inclusive em qual botão da própria janela do print o usuário deve clicar primeiro (ex.: "Clique em 'OK' / 'Fechar' nessa janelinha do erro") e cada clique seguinte em ordem lógica.
-   - Em "commands": sempre que um comando seguro de CMD ou Executar (Win + R) resolver ou acelerar o conserto daquele erro específico do print (ex.: limpar cache SSL, resetar OneDrive, renovar IP/DNS, modo seguro do Outlook/Excel, limpar fila de impressão), inclua-o já pronto para copiar!
+PROTOCOLO N° 2 — CONVERSA EM TEXTO (USUÁRIOS LEIGOS ATÉ AVANÇADOS):
+1. Se o relato em texto for vago ("não consigo trabalhar", "sumiu tudo", "não sei explicar") -> use "responseMode": "investigate", faça APENAS 1 pergunta visual simples, deixe "steps": [] e crie 2 a 4 opções clicáveis curtas em "quickReplies" na voz do usuário.
+2. Se o problema já estiver claro -> use "responseMode": "solve", explique de forma humana sem mandar ler o manual e traduza jargões ("no cantinho inferior direito perto do relógio", "tecla da janelinha do Windows + letra R").
 
-=====================================================================
-PROTOCOLO N° 2 — CONVERSA SEM IMAGEM (USUÁRIOS LEIGOS ATÉ AVANÇADOS):
-=====================================================================
-1. SE O RELATO EM TEXTO FOR MUITO VAGO (ex.: "não consigo trabalhar", "parou tudo", "não sei explicar") -> USE "responseMode": "investigate":
-   - Acolha com empatia e faça APENAS 1 pergunta visual simples por vez (ex.: "O mouse ainda mexe ou a tela inteira congelou?", "Isso acontece no e-mail (Outlook), no navegador ou no computador todo?").
-   - Deixe "steps": [], "commands": [] e "popCodes": [] enquanto investiga, e crie de 2 a 4 botões curtos em "quickReplies" na voz do usuário para ele responder com 1 clique (lembrando que ele também pode apertar Win + Shift + S e colar um print com Ctrl + V!).
+REGRAS DE SEGURANÇA CORPORATIVA ECOVIS BPO:
+1. Colaboradores NÃO têm senha de Administrador (UAC). Só sugira comandos de usuário padrão: ipconfig /flushdns, ipconfig /release, ipconfig /renew, ping, nslookup, gpupdate /force, hostname, whoami, %temp%, cleanmgr, %localappdata%\\Microsoft\\OneDrive\\onedrive.exe /reset, %localappdata%\\Microsoft\\OneDrive\\onedrive.exe, inetcpl.cpl, certmgr.msc, ncpa.cpl, control printers, outlook.exe /safe, outlook.exe /resetnavpane, excel.exe /safe, wsreset.exe, ms-settings:appsfeatures, ms-settings:display, ms-settings:privacy-microphone, ms-settings:sound, Win + Ctrl + Shift + B.
+2. PROIBIDO comandos destrutivos (del /s, rd /s, rmdir /s, format, diskpart, reg delete), pedir senhas ou desativar antivírus/firewall/BitLocker.
+3. Se exigir senha de Administrador, instalação, liberação em servidor ou reparo físico, use "responseMode": "escalate", "suggestTicket": true e indique abrir chamado em ${TI_TICKET_URL}.
 
-2. SE O PROBLEMA EM TEXTO JÁ ESTIVER CLARO -> USE "responseMode": "solve":
-   - Mastigue toda a solução diretamente no chat sem mandar o usuário leigo "ir ler o manual".
-   - Traduza termos técnicos para referências visuais fáceis ("no cantinho inferior direito perto do relógio", "segure a tecla da janelinha do Windows junto com a letra R").
+FORMATO JSON OBRIGATÓRIO DE RESPOSTA:
+{
+  "responseMode": "solve",
+  "screenTranscription": "Texto literal lido na imagem (ou string vazia se não houver imagem)",
+  "content": "Explicação simples, segura e direta em português",
+  "steps": ["Passo 1 claro", "Passo 2 claro"],
+  "commands": [{"label": "Título curto", "whereToRun": "cmd", "command": "ipconfig /flushdns", "explanation": "O que faz em 1 frase"}],
+  "quickReplies": ["Deu certo!", "Ainda não resolveu"],
+  "popCodes": [],
+  "diagnosedIssue": "Resumo técnico curto do problema/erro",
+  "suggestTicket": false
+}
 
-=====================================================================
-REGRAS DE SEGURANÇA CORPORATIVA ECOVIS BPO (OBRIGATÓRIAS):
-=====================================================================
-1. Os colaboradores NÃO possuem senha de Administrador no Windows (UAC). Sugira apenas comandos que rodam com usuário comum: ipconfig /flushdns, ipconfig /release, ipconfig /renew, ping, nslookup, gpupdate /force, hostname, whoami, %temp%, cleanmgr, %localappdata%\\Microsoft\\OneDrive\\onedrive.exe /reset, %localappdata%\\Microsoft\\OneDrive\\onedrive.exe, inetcpl.cpl, certmgr.msc, ncpa.cpl, control printers, outlook.exe /safe, outlook.exe /resetnavpane, excel.exe /safe, wsreset.exe, ms-settings:appsfeatures, ms-settings:display, ms-settings:privacy-microphone, ms-settings:sound, Win + Ctrl + Shift + B.
-2. NUNCA sugira comandos destrutivos (del /s, rd /s, rmdir /s, format, diskpart, reg delete), nunca peça senhas e nunca oriente desativar antivírus, firewall ou BitLocker.
-3. Quando o erro exigir permissão de Administrador, instalação de programa, inclusão em grupo/pasta no servidor ou reparo físico, use "responseMode": "escalate", marque "suggestTicket": true, preencha "diagnosedIssue" com o erro exato e oriente abrir chamado em ${TI_TICKET_URL}.
-4. Só inclua códigos em "popCodes" (máx. 2 entre POP-001 e POP-038) se o POP tratar diretamente do mesmo assunto. Caso contrário, retorne "popCodes": [].
+${catalogSection}`;
+}
 
-BASE DE CONHECIMENTO COMPLETA DOS 38 POPS OFICIAIS DA ECOVIS BPO:
-${FULL_POPS_KNOWLEDGE_BASE}`;
-
+// Schema enxuto compatível com decodificação rápida sem risco de erro 400 por aninhamento excessivo
 const RESPONSE_JSON_SCHEMA = {
   type: "object",
   properties: {
     responseMode: {
       type: "string",
       enum: ["investigate", "solve", "escalate"],
-      description:
-        "Para prints de erro use SEMPRE 'solve' (ou 'escalate' se exigir TI/Admin). Use 'investigate' apenas quando não houver erro claro e precisar de 1 pergunta simples.",
     },
-    screenTranscription: {
-      type: "string",
-      description:
-        "OBRIGATÓRIO quando houver imagem/print: transcrição literal e exata da janela, código e mensagem de erro lida na tela. Vazio '' se não houver imagem.",
-    },
-    content: {
-      type: "string",
-      description:
-        "Explicação direta, segura, acolhedora e sem jargões difíceis sobre a causa do problema e como vamos resolver.",
-    },
+    screenTranscription: { type: "string" },
+    content: { type: "string" },
     steps: {
       type: "array",
       items: { type: "string" },
-      description:
-        "Passos práticos, completos e visuais na ordem exata de execução para resolver o problema.",
     },
     commands: {
       type: "array",
@@ -173,39 +171,19 @@ const RESPONSE_JSON_SCHEMA = {
         },
         required: ["label", "whereToRun", "command", "explanation"],
       },
-      description:
-        "Comandos seguros (sem exigir Admin) para CMD ou Executar (Win+R) quando aplicáveis.",
     },
     quickReplies: {
       type: "array",
       items: { type: "string" },
-      description:
-        "2 a 4 botões curtos de resposta rápida escritos na voz do colaborador.",
     },
     popCodes: {
       type: "array",
       items: { type: "string" },
-      description:
-        "Códigos POP-001 a POP-038 apenas quando diretamente relacionados ao mesmo assunto.",
     },
-    diagnosedIssue: {
-      type: "string",
-      description:
-        "Resumo técnico curto (incluindo código do erro se houver) para eventual abertura de chamado na TI.",
-    },
-    suggestTicket: {
-      type: "boolean",
-      description:
-        "true quando exigir ação da equipe de TI ou caso o erro seja administrativo/físico.",
-    },
+    diagnosedIssue: { type: "string" },
+    suggestTicket: { type: "boolean" },
   },
-  required: [
-    "responseMode",
-    "screenTranscription",
-    "content",
-    "steps",
-    "suggestTicket",
-  ],
+  required: ["responseMode", "screenTranscription", "content", "suggestTicket"],
 };
 
 const FORBIDDEN_COMMAND_PATTERNS = [
@@ -273,79 +251,78 @@ function extractInteractionJsonText(
   return null;
 }
 
-function cleanJsonEnvelope(raw: string): string {
+function parseStructuredReplySafely(raw: string): GeminiStructuredReply | null {
   const trimmed = raw.trim();
-  if (trimmed.startsWith("```")) {
-    return trimmed
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/\s*```$/, "")
-      .trim();
+  const stripped = trimmed.startsWith("```")
+    ? trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+    : trimmed;
+
+  try {
+    return JSON.parse(stripped) as GeminiStructuredReply;
+  } catch {
+    const firstBrace = stripped.indexOf("{");
+    const lastBrace = stripped.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(
+          stripped.slice(firstBrace, lastBrace + 1)
+        ) as GeminiStructuredReply;
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
-  return trimmed;
 }
 
-function buildInputBlocks(params: {
-  promptText: string;
-  image?: { base64Data: string; mimeType: string } | null;
-  modelName: string;
-}): Array<Record<string, string>> {
-  const { promptText, image, modelName } = params;
-
-  if (!image) {
-    return [{ type: "text", text: promptText }];
-  }
-
-  // Usa resolução "ultra_high" (2240 tokens visuais dedicados a leitura de telas/OCR) na linha Gemini 4 e "high" na linha Gemini 3
-  const mediaResolution = modelName.startsWith("gemini-4-")
-    ? "ultra_high"
-    : "high";
-
-  // Na análise de telas, posicionar a imagem ANTES da instrução melhora a precisão do OCR
-  return [
-    {
-      type: "image",
-      data: image.base64Data,
-      mime_type: image.mimeType,
-      resolution: mediaResolution,
-    },
-    {
-      type: "text",
-      text: promptText,
-    },
-  ];
-}
-
-async function callInteractionsEndpoint(params: {
+async function callInteractionsApi(params: {
   apiKey: string;
   model: string;
-  inputBlocks: Array<Record<string, string>>;
-  hasImage: boolean;
+  systemInstruction: string;
+  promptText: string;
+  image?: { base64Data: string; mimeType: string } | null;
   previousInteractionId?: string | null;
-}): Promise<EndpointCallResult> {
-  const { apiKey, model, inputBlocks, hasImage, previousInteractionId } =
-    params;
+}): Promise<RawModelAttemptResult> {
+  const {
+    apiKey,
+    model,
+    systemInstruction,
+    promptText,
+    image,
+    previousInteractionId,
+  } = params;
 
   const isGemini4 = model.startsWith("gemini-4-");
   const isGemini3 = model.startsWith("gemini-3.");
 
-  // Em prints de erro, usa raciocínio mais profundo ("high" no Gemini 4 / "medium" no Gemini 3) para ler cada caractere e validar a melhor solução sem hesitar
+  // Mantém thinking_level="low" em chamadas com print para garantir resposta rápida (< 5s) sem estourar o limite de 10s da Vercel Hobby
   const thinkingLevel = isGemini4
-    ? hasImage
-      ? "high"
+    ? image
+      ? "low"
       : "medium"
     : isGemini3
-    ? hasImage
-      ? "medium"
-      : "low"
+    ? "low"
     : undefined;
+
+  const inputPayload = image
+    ? [
+        {
+          type: "image",
+          data: image.base64Data,
+          mime_type: image.mimeType,
+          resolution: "high",
+        },
+        {
+          type: "text",
+          text: promptText,
+        },
+      ]
+    : promptText;
 
   const requestBody: Record<string, unknown> = {
     model,
-    system_instruction: SYSTEM_INSTRUCTION,
-    input:
-      inputBlocks.length === 1 && inputBlocks[0].type === "text"
-        ? inputBlocks[0].text
-        : inputBlocks,
+    system_instruction: systemInstruction,
+    input: inputPayload,
     response_format: {
       type: "text",
       mime_type: "application/json",
@@ -359,85 +336,67 @@ async function callInteractionsEndpoint(params: {
     };
   }
 
-  if (previousInteractionId) {
+  if (previousInteractionId && !image) {
     requestBody.previous_interaction_id = previousInteractionId;
   }
 
-  try {
-    const res = await fetch(
-      "https://generativelanguage.googleapis.com/v1/interactions",
-      {
+  // Usa o cabeçalho oficial Api-Revision exigido pelo novo formato de response_format e steps
+  const endpoints = [
+    "https://generativelanguage.googleapis.com/v1beta/interactions",
+    "https://generativelanguage.googleapis.com/v1/interactions",
+  ];
+
+  let lastStatus = 0;
+  let lastSnippet = "";
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-goog-api-key": apiKey,
+          "Api-Revision": API_REVISION_HEADER,
         },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(hasImage ? 26000 : 16000),
-      }
-    );
+        signal: AbortSignal.timeout(image ? 8200 : 9000),
+      });
 
-        if (!res.ok) {
-      // Caso a rota /v1/interactions retorne 404 em alguma região, tenta /v1beta/interactions com revisão oficial
-      if (res.status === 404) {
-        const betaRes = await fetch(
-          "https://generativelanguage.googleapis.com/v1beta/interactions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": apiKey,
-              "Api-Revision": "2026-05-20",
-            },
-            body: JSON.stringify(requestBody),
-            signal: AbortSignal.timeout(hasImage ? 26000 : 16000),
-          }
-        );
-        if (betaRes.ok) {
-          const betaPayload =
-            (await betaRes.json()) as InteractionApiResponse;
-          return { ok: true, status: betaRes.status, payload: betaPayload };
+      if (res.ok) {
+        const payload = (await res.json()) as InteractionApiResponse;
+        const jsonText = extractInteractionJsonText(payload);
+        if (jsonText) {
+          return {
+            ok: true,
+            status: 200,
+            rawJsonText: jsonText,
+            interactionId:
+              typeof payload.id === "string" ? payload.id : undefined,
+          };
+        }
+      } else {
+        lastStatus = res.status;
+        const errText = await res.text().catch(() => "");
+        lastSnippet = errText.slice(0, 140);
+
+        // Se for 429 (cota por minuto) ou 401/403, não repete no segundo endpoint do mesmo modelo
+        if (res.status === 429 || res.status === 401 || res.status === 403) {
+          break;
         }
       }
-
-      // Caso algum formato específico de imagem rejeite "ultra_high" (400), tenta imediatamente em "high" no mesmo modelo Gemini 4
-      if (
-        hasImage &&
-        res.status === 400 &&
-        inputBlocks.some((b) => b.resolution === "ultra_high")
-      ) {
-        const highResBlocks = inputBlocks.map((b) =>
-          b.type === "image" ? { ...b, resolution: "high" } : b
-        );
-        const retryRes = await fetch(
-          "https://generativelanguage.googleapis.com/v1/interactions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": apiKey,
-            },
-            body: JSON.stringify({
-              ...requestBody,
-              input: highResBlocks,
-            }),
-            signal: AbortSignal.timeout(24000),
-          }
-        );
-        if (retryRes.ok) {
-          const retryPayload =
-            (await retryRes.json()) as InteractionApiResponse;
-          return { ok: true, status: retryRes.status, payload: retryPayload };
-        }
-      }
-      return { ok: false, status: res.status, payload: null };
+    } catch (err) {
+      lastStatus = 504;
+      lastSnippet = err instanceof Error ? err.name : "timeout";
+      break;
     }
-
-    const payload = (await res.json()) as InteractionApiResponse;
-    return { ok: true, status: res.status, payload };
-  } catch {
-    return { ok: false, status: 0, payload: null };
   }
+
+  return {
+    ok: false,
+    status: lastStatus,
+    rawJsonText: null,
+    errorSnippet: lastSnippet,
+  };
 }
 
 function cleanApiKeyCandidate(raw?: string | null): string | null {
@@ -448,14 +407,13 @@ function cleanApiKeyCandidate(raw?: string | null): string | null {
   return unquoted.length >= 25 ? unquoted : null;
 }
 
-// Lê explicitamente process.env.Manual_POPs_Ecovis (compatível com o compilador da Vercel/Next.js) e variações comuns
 function resolveServerGeminiApiKey(): {
   key: string | null;
   source: string | null;
 } {
   const explicitEntries: Array<[string, string | undefined]> = [
-    ["Manual_POPs_Ecovis", process.env.Manual_POPs_Ecovis],
-    ["NEXT_PUBLIC_Manual_POPs_Ecovis", process.env.NEXT_PUBLIC_Manual_POPs_Ecovis],
+    ["GEMINI_API_KEY", process.env.GEMINI_API_KEY],
+    ["NEXT_PUBLIC_GEMINI_API_KEY", process.env.NEXT_PUBLIC_GEMINI_API_KEY],
     ["GOOGLE_API_KEY", process.env.GOOGLE_API_KEY],
     [
       "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -496,8 +454,29 @@ function resolveServerGeminiApiKey(): {
   return { key: null, source: null };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const detected = resolveServerGeminiApiKey();
+  const url = new URL(request.url);
+
+  if (url.searchParams.get("ping") === "1" && detected.key) {
+    const pingTest = await callInteractionsApi({
+      apiKey: detected.key,
+      model: "gemini-4-hydrogen",
+      systemInstruction: buildSystemInstruction(true),
+      promptText: "Responda com um JSON curto confirmando que está online.",
+      image: null,
+      previousInteractionId: null,
+    });
+
+    return NextResponse.json({
+      keyConfiguredOnServer: true,
+      detectedEnvSource: detected.source,
+      pingOk: pingTest.ok,
+      pingStatus: pingTest.status,
+      pingError: pingTest.errorSnippet ?? null,
+    });
+  }
+
   return NextResponse.json({
     keyConfiguredOnServer: Boolean(detected.key),
     detectedEnvSource: detected.source,
@@ -526,7 +505,7 @@ export async function POST(request: Request) {
     rawImage &&
       typeof rawImage.base64Data === "string" &&
       rawImage.base64Data.length > 50 &&
-      rawImage.base64Data.length <= 7_500_000 &&
+      rawImage.base64Data.length <= 5_500_000 &&
       typeof rawImage.mimeType === "string" &&
       ALLOWED_IMAGE_MIME_TYPES.has(rawImage.mimeType)
   );
@@ -537,15 +516,15 @@ export async function POST(request: Request) {
 
   const effectiveUserMessage = hasValidImage
     ? rawMessage
-      ? `Analise atentamente este print da tela junto com meu relato: "${rawMessage}". Primeiro transcreva literalmente em "screenTranscription" tudo o que o erro/tela mostra (incluindo códigos e nome da janela) e em seguida me dê a solução mais certeira passo a passo, sem ficar em dúvida.`
-      : `Analise atentamente este print da minha tela. Leia letra por letra e transcreva fielmente em "screenTranscription" a mensagem, título da janela e qualquer código de erro exibido, explique de forma simples o que significa e já me entregue a melhor solução passo a passo completa (use responseMode="solve" ou "escalate").`
+      ? `Analise este print da tela junto com meu relato: "${rawMessage}". Transcreva literalmente em "screenTranscription" tudo o que o erro/tela mostra (título da janela, código e texto exato) e entregue a melhor solução passo a passo sem ficar em dúvida.`
+      : `Analise este print da minha tela. Transcreva literalmente em "screenTranscription" o título da janela, qualquer código e a mensagem exata exibida na tela, explique de forma simples o que causou isso e entregue imediatamente a melhor solução passo a passo completa (responseMode="solve" ou "escalate").`
     : rawMessage;
 
   const contextNote = body.currentPopCode
-    ? `[Contexto opcional: o colaborador está com ${body.currentPopCode} aberto ao fundo, mas ignore se o print/dúvida for sobre outro assunto]\n`
+    ? `[Contexto opcional: ${body.currentPopCode} aberto ao fundo]\n`
     : "";
 
-  const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
+  const history = Array.isArray(body.history) ? body.history.slice(-6) : [];
   const priorTurns = history
     .slice(0, -1)
     .filter(
@@ -559,15 +538,15 @@ export async function POST(request: Request) {
       (m) =>
         `${m.role === "assistant" ? "Assistente TI" : "Colaborador"}: ${m.content
           .trim()
-          .slice(0, 1000)}`
+          .slice(0, 700)}`
     );
 
   const singleTurnText = `${contextNote}${effectiveUserMessage}`;
   const fullStatelessText =
     priorTurns.length > 0
-      ? `Histórico recente da conversa:\n${priorTurns.join(
+      ? `Histórico recente:\n${priorTurns.join(
           "\n\n"
-        )}\n\n---\n${contextNote}Solicitação atual do Colaborador: ${effectiveUserMessage}`
+        )}\n\n---\n${contextNote}Mensagem atual: ${effectiveUserMessage}`
       : singleTurnText;
 
   const validImageObj =
@@ -575,172 +554,155 @@ export async function POST(request: Request) {
       ? { base64Data: rawImage.base64Data, mimeType: rawImage.mimeType }
       : null;
 
+  const systemInstruction = buildSystemInstruction(hasValidImage);
   const modelsToTry = resolveModelQueue(process.env.GEMINI_MODEL);
   const previousInteractionId = body.previousInteractionId?.trim() || null;
-  let lastErrorStatus = 0;
+
+  let lastStatus = 0;
+  let lastErrorSnippet = "";
+  const routeStartMs = Date.now();
 
   for (let idx = 0; idx < modelsToTry.length; idx++) {
+    // Evita ultrapassar a janela de execução da função Serverless
+    if (Date.now() - routeStartMs > 22000) {
+      break;
+    }
+
     const modelName = modelsToTry[idx];
+    const usePrevId = !hasValidImage && idx === 0 && Boolean(previousInteractionId);
 
-    try {
-      let payload: InteractionApiResponse | null = null;
+    const attempt = await callInteractionsApi({
+      apiKey,
+      model: modelName,
+      systemInstruction,
+      promptText: usePrevId ? singleTurnText : fullStatelessText,
+      image: validImageObj,
+      previousInteractionId: usePrevId ? previousInteractionId : null,
+    });
 
-      // Quando há imagem, envia direto o histórico textual leve + apenas a imagem atual em ultra_high (evita reprocessar imagens antigas e estourar cota/tempo)
-      if (!hasValidImage && idx === 0 && previousInteractionId) {
-        const statefulResult = await callInteractionsEndpoint({
-          apiKey,
-          model: modelName,
-          inputBlocks: buildInputBlocks({
-            promptText: singleTurnText,
-            image: null,
-            modelName,
-          }),
-          hasImage: false,
-          previousInteractionId,
-        });
+    let finalAttempt = attempt;
 
-        if (statefulResult.ok && statefulResult.payload) {
-          payload = statefulResult.payload;
-        } else {
-          lastErrorStatus = statefulResult.status;
-          // Se foi limite de taxa (429) ou falha 5xx no servidor, pula imediatamente para o próximo modelo gratuito sem perder tempo no mesmo modelo!
-          if (statefulResult.status === 429 || statefulResult.status >= 500) {
-            continue;
-          }
-        }
-      }
+    // Se falhou apenas por previous_interaction_id expirado (400/404 em texto), reenvia sem previous_interaction_id
+    if (
+      !finalAttempt.ok &&
+      usePrevId &&
+      (finalAttempt.status === 400 || finalAttempt.status === 404)
+    ) {
+      finalAttempt = await callInteractionsApi({
+        apiKey,
+        model: modelName,
+        systemInstruction,
+        promptText: fullStatelessText,
+        image: validImageObj,
+        previousInteractionId: null,
+      });
+    }
 
-      if (!payload) {
-        const statelessResult = await callInteractionsEndpoint({
-          apiKey,
-          model: modelName,
-          inputBlocks: buildInputBlocks({
-            promptText: fullStatelessText,
-            image: validImageObj,
-            modelName,
-          }),
-          hasImage: hasValidImage,
-          previousInteractionId: null,
-        });
+    if (!finalAttempt.ok || !finalAttempt.rawJsonText) {
+      lastStatus = finalAttempt.status;
+      lastErrorSnippet = finalAttempt.errorSnippet ?? "";
+      continue;
+    }
 
-        if (statelessResult.ok && statelessResult.payload) {
-          payload = statelessResult.payload;
-        } else {
-          lastErrorStatus = statelessResult.status;
-          continue;
-        }
-      }
+    const parsed = parseStructuredReplySafely(finalAttempt.rawJsonText);
+    if (!parsed || !parsed.content || typeof parsed.content !== "string") {
+      lastStatus = 422;
+      continue;
+    }
 
-      const rawJsonText = extractInteractionJsonText(payload);
-      if (!rawJsonText) {
-        continue;
-      }
+    const responseMode: "investigate" | "solve" | "escalate" =
+      parsed.responseMode === "investigate" ||
+      parsed.responseMode === "solve" ||
+      parsed.responseMode === "escalate"
+        ? parsed.responseMode
+        : "solve";
 
-      const parsed = JSON.parse(
-        cleanJsonEnvelope(rawJsonText)
-      ) as GeminiStructuredReply;
+    const safeScreenTranscription =
+      typeof parsed.screenTranscription === "string" &&
+      parsed.screenTranscription.trim().length > 0
+        ? parsed.screenTranscription.trim().slice(0, 600)
+        : undefined;
 
-      if (!parsed.content || typeof parsed.content !== "string") {
-        continue;
-      }
-
-      const responseMode: "investigate" | "solve" | "escalate" =
-        parsed.responseMode === "investigate" ||
-        parsed.responseMode === "solve" ||
-        parsed.responseMode === "escalate"
-          ? parsed.responseMode
-          : "solve";
-
-      const safeScreenTranscription =
-        typeof parsed.screenTranscription === "string" &&
-        parsed.screenTranscription.trim().length > 0
-          ? parsed.screenTranscription.trim().slice(0, 600)
-          : undefined;
-
-      const safeCommands =
-        responseMode !== "investigate" && Array.isArray(parsed.commands)
-          ? parsed.commands
-              .filter(
-                (c) =>
-                  c &&
-                  typeof c.label === "string" &&
-                  typeof c.command === "string" &&
-                  typeof c.explanation === "string" &&
-                  (c.whereToRun === "cmd" || c.whereToRun === "run") &&
-                  isSafeCorporateCommand(c.command)
-              )
-              .slice(0, 4)
-          : undefined;
-
-      const safeSteps =
-        responseMode !== "investigate" && Array.isArray(parsed.steps)
-          ? parsed.steps
-              .filter((s) => typeof s === "string" && s.trim().length > 0)
-              .map((s) => s.trim())
-              .slice(0, 6)
-          : undefined;
-
-      const safeQuickReplies = Array.isArray(parsed.quickReplies)
-        ? parsed.quickReplies
+    const safeCommands =
+      responseMode !== "investigate" && Array.isArray(parsed.commands)
+        ? parsed.commands
             .filter(
-              (q) =>
-                typeof q === "string" &&
-                q.trim().length >= 2 &&
-                q.trim().length <= 75
+              (c) =>
+                c &&
+                typeof c.label === "string" &&
+                typeof c.command === "string" &&
+                typeof c.explanation === "string" &&
+                (c.whereToRun === "cmd" || c.whereToRun === "run") &&
+                isSafeCorporateCommand(c.command)
             )
-            .map((q) => q.trim())
             .slice(0, 4)
         : undefined;
 
-      const safePopCodes =
-        responseMode !== "investigate" && Array.isArray(parsed.popCodes)
-          ? parsed.popCodes
-              .filter((code) => typeof code === "string")
-              .map((code) => code.trim().toUpperCase())
-              .filter((code) => VALID_POP_CODES.has(code))
-              .slice(0, 2)
-          : undefined;
+    const safeSteps =
+      responseMode !== "investigate" && Array.isArray(parsed.steps)
+        ? parsed.steps
+            .filter((s) => typeof s === "string" && s.trim().length > 0)
+            .map((s) => s.trim())
+            .slice(0, 6)
+        : undefined;
 
-      const safeDiagnosedIssue =
-        typeof parsed.diagnosedIssue === "string" &&
-        parsed.diagnosedIssue.trim().length > 0
-          ? parsed.diagnosedIssue.trim().slice(0, 220)
-          : undefined;
+    const safeQuickReplies = Array.isArray(parsed.quickReplies)
+      ? parsed.quickReplies
+          .filter(
+            (q) =>
+              typeof q === "string" &&
+              q.trim().length >= 2 &&
+              q.trim().length <= 75
+          )
+          .map((q) => q.trim())
+          .slice(0, 4)
+      : undefined;
 
-      return NextResponse.json({
-        responseMode,
-        screenTranscription: safeScreenTranscription,
-        content: parsed.content.trim(),
-        steps: safeSteps && safeSteps.length > 0 ? safeSteps : undefined,
-        commands:
-          safeCommands && safeCommands.length > 0 ? safeCommands : undefined,
-        quickReplies:
-          safeQuickReplies && safeQuickReplies.length > 0
-            ? safeQuickReplies
-            : undefined,
-        popCodes:
-          safePopCodes && safePopCodes.length > 0 ? safePopCodes : undefined,
-        diagnosedIssue: safeDiagnosedIssue,
-        suggestTicket:
-          responseMode === "investigate"
-            ? false
-            : responseMode === "escalate" || Boolean(parsed.suggestTicket),
-        interactionId: !hasValidImage && typeof payload.id === "string"
-          ? payload.id
+    const safePopCodes =
+      responseMode !== "investigate" && Array.isArray(parsed.popCodes)
+        ? parsed.popCodes
+            .filter((code) => typeof code === "string")
+            .map((code) => code.trim().toUpperCase())
+            .filter((code) => VALID_POP_CODES.has(code))
+            .slice(0, 2)
+        : undefined;
+
+    const safeDiagnosedIssue =
+      typeof parsed.diagnosedIssue === "string" &&
+      parsed.diagnosedIssue.trim().length > 0
+        ? parsed.diagnosedIssue.trim().slice(0, 220)
+        : undefined;
+
+    return NextResponse.json({
+      responseMode,
+      screenTranscription: safeScreenTranscription,
+      content: parsed.content.trim(),
+      steps: safeSteps && safeSteps.length > 0 ? safeSteps : undefined,
+      commands:
+        safeCommands && safeCommands.length > 0 ? safeCommands : undefined,
+      quickReplies:
+        safeQuickReplies && safeQuickReplies.length > 0
+          ? safeQuickReplies
           : undefined,
-      });
-    } catch {
-      continue;
-    }
+      popCodes:
+        safePopCodes && safePopCodes.length > 0 ? safePopCodes : undefined,
+      diagnosedIssue: safeDiagnosedIssue,
+      suggestTicket:
+        responseMode === "investigate"
+          ? false
+          : responseMode === "escalate" || Boolean(parsed.suggestTicket),
+      interactionId: !hasValidImage ? finalAttempt.interactionId : undefined,
+    });
   }
 
   return NextResponse.json({
     fallback: true,
     reason:
-      lastErrorStatus === 429
+      lastStatus === 429
         ? "rate_limited"
-        : lastErrorStatus === 400 || lastErrorStatus === 403
-        ? "invalid_or_rejected_key"
-        : "upstream_unavailable",
+        : lastStatus === 400 || lastStatus === 401 || lastStatus === 403
+        ? `api_rejected_${lastStatus}`
+        : `upstream_${lastStatus || "timeout"}`,
+    detail: lastErrorSnippet ? lastErrorSnippet.slice(0, 100) : undefined,
   });
 }
