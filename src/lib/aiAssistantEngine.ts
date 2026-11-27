@@ -3,6 +3,31 @@ import { THEMES } from "@/data/themes";
 import type { PopItem } from "@/types/pop";
 
 export const TI_TICKET_URL = "https://ti.ecobpoti.cloud/abrir";
+export const LOCAL_GEMINI_KEY_STORAGE = "ecovis_pops_gemini_api_key";
+
+export function getSavedClientGeminiApiKey(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const val = window.localStorage.getItem(LOCAL_GEMINI_KEY_STORAGE)?.trim();
+    return val && val.length >= 25 ? val : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveClientGeminiApiKey(rawKey: string): boolean {
+  if (typeof window === "undefined") return false;
+  const cleaned = rawKey.trim().replace(/^["']+|["']+$/g, "").trim();
+  const match = cleaned.match(/AIza[0-9A-Za-z_-]{30,45}/);
+  const finalKey = match ? match[0] : cleaned;
+  if (finalKey.length < 25) return false;
+  try {
+    window.localStorage.setItem(LOCAL_GEMINI_KEY_STORAGE, finalKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ChatActionPop {
   code: string;
@@ -30,9 +55,10 @@ export interface ChatMessage {
   content: string;
   imagePreviewUrl?: string;
   screenTranscription?: string;
+  needsApiKeySetup?: boolean;
   retryPayload?: {
     userText: string;
-    image: ChatImageAttachment;
+    image?: ChatImageAttachment | null;
   };
   steps?: string[];
   commands?: CommandSnippet[];
@@ -1249,6 +1275,7 @@ export async function generateAssistantReply(params: {
       }
 
       try {
+        const savedClientKey = getSavedClientGeminiApiKey();
         const response = await fetch(externalEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1256,6 +1283,7 @@ export async function generateAssistantReply(params: {
             message: userText,
             currentPopCode,
             previousInteractionId: image ? null : previousInteractionId,
+            clientApiKey: savedClientKey,
             image: image
               ? {
                   base64Data: image.base64Data,
@@ -1303,7 +1331,10 @@ export async function generateAssistantReply(params: {
           }
 
           fallbackReason = data.reason ?? "upstream_unavailable";
-          if (fallbackReason === "missing_api_key") {
+          if (
+            fallbackReason === "missing_api_key" ||
+            fallbackReason === "invalid_or_rejected_key"
+          ) {
             break;
           }
         } else {
@@ -1315,19 +1346,23 @@ export async function generateAssistantReply(params: {
     }
   }
 
-  // Se o usuário enviou uma imagem/print e a API não pôde ler (ex.: falta .env.local em localhost ou limite momentâneo de requisições por minuto)
+  // Se o usuário enviou uma imagem/print e o ambiente ainda não recebeu a chave da API (ex.: criada no Google AI Studio mas ainda não vinculada na Vercel/.env.local)
   if (image) {
-    if (fallbackReason === "missing_api_key") {
+    if (
+      fallbackReason === "missing_api_key" ||
+      fallbackReason === "invalid_or_rejected_key"
+    ) {
       return {
         role: "assistant",
         content:
-          "Para eu ler imagens e prints da tela, a chave `GEMINI_API_KEY` precisa estar ativa neste ambiente (no site da Vercel ela fica em Settings > Environment Variables; se estiver testando em `localhost`, adicione no arquivo `.env.local` e reinicie o `npm.cmd run dev`).\n\nEnquanto isso, clique abaixo onde esse erro apareceu que já te guio:",
-        quickReplies: [
-          "Apareceu no E-mail (Outlook) ou Teams",
-          "É na Internet / navegador não abre",
-          "Pediu senha de Administrador",
-          "O notebook travou ou está lento",
-        ],
+          fallbackReason === "invalid_or_rejected_key"
+            ? "A chave informada não foi aceita pelo Google AI Studio (confira se copiou o código `AIzaSy...` inteiro sem espaços). Cole novamente abaixo para ler seu print na hora:"
+            : "Sua chave já está ativa lá no Google AI Studio, só falta conectá-la aqui no painel! Cole o código `AIzaSy...` uma única vez abaixo que eu já leio e transcrevo seu print agora mesmo:",
+        needsApiKeySetup: true,
+        retryPayload: {
+          userText,
+          image,
+        },
         suggestTicket: false,
         askResolutionFeedback: false,
         isInvestigativeQuestion: true,

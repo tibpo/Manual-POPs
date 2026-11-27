@@ -6,6 +6,7 @@ import {
   buildTicketSummary,
   generateAssistantReply,
   getPlaybookById,
+  saveClientGeminiApiKey,
   type ChatImageAttachment,
   type ChatMessage,
   type CommandSnippet,
@@ -189,6 +190,8 @@ export function AiSelfHelpWidget({
   const [imageError, setImageError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [isReadingImage, setIsReadingImage] = useState(false);
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
   const [summaryCopied, setSummaryCopied] = useState(false);
   const [copiedCmdKey, setCopiedCmdKey] = useState<string | null>(null);
 
@@ -529,15 +532,59 @@ export function AiSelfHelpWidget({
                       {msg.content}
                     </p>
 
+                    {/* Conector Instantâneo de Chave Gemini direto no Chat (caso ainda não esteja na Vercel/.env.local) */}
+                    {msg.needsApiKeySetup && (
+                      <div className="mt-3 pt-2.5 border-t border-stone-200 space-y-2">
+                        <input
+                          type="password"
+                          value={apiKeyDraft}
+                          onChange={(e) => {
+                            setApiKeyDraft(e.target.value);
+                            if (apiKeyError) setApiKeyError(null);
+                          }}
+                          placeholder="Cole aqui a chave AIzaSy..."
+                          className="w-full bg-stone-50 text-stoneink placeholder-stone-400 text-xs font-mono rounded-lg px-3 py-2 border border-stone-300 focus:outline-none focus:border-crimson"
+                        />
+                        {apiKeyError && (
+                          <div className="text-[11px] font-semibold text-crimson">
+                            {apiKeyError}
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          disabled={isTyping || !apiKeyDraft.trim()}
+                          onClick={() => {
+                            const ok = saveClientGeminiApiKey(apiKeyDraft);
+                            if (!ok) {
+                              setApiKeyError(
+                                "Cole a chave completa (começa com AIzaSy...)."
+                              );
+                              return;
+                            }
+                            setApiKeyDraft("");
+                            setApiKeyError(null);
+                            void sendMessage(
+                              msg.retryPayload?.userText ?? "",
+                              msg.retryPayload?.image ?? null,
+                              true
+                            );
+                          }}
+                          className="w-full text-center bg-crimson hover:bg-crimson-dark disabled:opacity-45 text-white text-xs font-extrabold px-3 py-2 rounded-xl shadow-sm transition"
+                        >
+                          🔑 Conectar Chave e Ler Meu Print Agora
+                        </button>
+                      </div>
+                    )}
+
                     {/* Botão de Reanalisar Print caso tenha ocorrido pico na rede */}
-                    {msg.retryPayload && (
+                    {msg.retryPayload && !msg.needsApiKeySetup && (
                       <div className="mt-2.5">
                         <button
                           type="button"
                           onClick={() =>
                             void sendMessage(
                               msg.retryPayload!.userText,
-                              msg.retryPayload!.image,
+                              msg.retryPayload!.image ?? null,
                               true
                             )
                           }

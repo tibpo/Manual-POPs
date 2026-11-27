@@ -20,6 +20,7 @@ interface ChatRequestBody {
   message?: string;
   currentPopCode?: string | null;
   previousInteractionId?: string | null;
+  clientApiKey?: string | null;
   history?: IncomingHistoryItem[];
   image?: IncomingImagePayload | null;
 }
@@ -369,7 +370,29 @@ async function callInteractionsEndpoint(params: {
       }
     );
 
-    if (!res.ok) {
+        if (!res.ok) {
+      // Caso a rota /v1/interactions retorne 404 em alguma região, tenta /v1beta/interactions com revisão oficial
+      if (res.status === 404) {
+        const betaRes = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/interactions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+              "Api-Revision": "2026-05-20",
+            },
+            body: JSON.stringify(requestBody),
+            signal: AbortSignal.timeout(hasImage ? 26000 : 16000),
+          }
+        );
+        if (betaRes.ok) {
+          const betaPayload =
+            (await betaRes.json()) as InteractionApiResponse;
+          return { ok: true, status: betaRes.status, payload: betaPayload };
+        }
+      }
+
       // Caso algum formato específico de imagem rejeite "ultra_high" (400), tenta imediatamente em "high" no mesmo modelo Gemini 4
       if (
         hasImage &&
@@ -410,17 +433,87 @@ async function callInteractionsEndpoint(params: {
   }
 }
 
-export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    return NextResponse.json({ fallback: true, reason: "missing_api_key" });
+function cleanApiKeyCandidate(raw?: string | null): string | null {
+  if (!raw) return null;
+  const unquoted = raw.trim().replace(/^["']+|["']+$/g, "").trim();
+  const match = unquoted.match(/AIza[0-9A-Za-z_-]{30,45}/);
+  if (match) return match[0];
+  return unquoted.length >= 25 ? unquoted : null;
+}
+
+// Localiza automaticamente a chave da API Gemini no servidor mesmo se cadastrada com outro nome comum, com aspas ou invertida na Vercel
+function resolveServerGeminiApiKey(): {
+  key: string | null;
+  source: string | null;
+} {
+  const priorityNames = [
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "GOOGLE_GENAI_API_KEY",
+    "NEXT_PUBLIC_GEMINI_API_KEY",
+    "GEMINI_KEY",
+    "API_KEY",
+  ];
+
+  for (const name of priorityNames) {
+    const cleaned = cleanApiKeyCandidate(process.env[name]);
+    if (cleaned) {
+      return { key: cleaned, source: name };
+    }
   }
 
+  // Busca insensível a maiúsculas/minúsculas ou qualquer variável cujo valor/nome contenha uma chave Google (AIza...)
+  for (const [envKey, envVal] of Object.entries(process.env)) {
+    const upper = envKey.trim().toUpperCase();
+    if (
+      priorityNames.includes(upper) ||
+      upper.includes("GEMINI") ||
+      upper.includes("GOOGLE_API")
+    ) {
+      const cleaned = cleanApiKeyCandidate(envVal);
+      if (cleaned) {
+        return { key: cleaned, source: envKey };
+      }
+    }
+
+    const fromVal = envVal?.match(/AIza[0-9A-Za-z_-]{30,45}/);
+    if (fromVal) {
+      return { key: fromVal[0], source: envKey };
+    }
+
+    // Caso o usuário tenha colado sem querer o código AIza... na coluna "Key" da Vercel
+    const fromKeyName = envKey.match(/AIza[0-9A-Za-z_-]{30,45}/);
+    if (fromKeyName) {
+      return { key: fromKeyName[0], source: "env_key_column" };
+    }
+  }
+
+  return { key: null, source: null };
+}
+
+export async function GET() {
+  const detected = resolveServerGeminiApiKey();
+  return NextResponse.json({
+    keyConfiguredOnServer: Boolean(detected.key),
+    detectedEnvSource: detected.source,
+  });
+}
+
+export async function POST(request: Request) {
   let body: ChatRequestBody;
   try {
     body = (await request.json()) as ChatRequestBody;
   } catch {
     return NextResponse.json({ fallback: true, reason: "invalid_json" });
+  }
+
+  const serverDetected = resolveServerGeminiApiKey();
+  const clientFallbackKey = cleanApiKeyCandidate(body.clientApiKey);
+  const apiKey = serverDetected.key || clientFallbackKey;
+
+  if (!apiKey) {
+    return NextResponse.json({ fallback: true, reason: "missing_api_key" });
   }
 
   const rawMessage = (body.message ?? "").trim().slice(0, 2000);
@@ -639,6 +732,11 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     fallback: true,
-    reason: lastErrorStatus === 429 ? "rate_limited" : "upstream_unavailable",
+    reason:
+      lastErrorStatus === 429
+        ? "rate_limited"
+        : lastErrorStatus === 400 || lastErrorStatus === 403
+        ? "invalid_or_rejected_key"
+        : "upstream_unavailable",
   });
 }
