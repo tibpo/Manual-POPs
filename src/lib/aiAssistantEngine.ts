@@ -1138,11 +1138,6 @@ export function buildTicketSummary(
     )
     .filter(Boolean);
 
-  const latestTranscription = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant" && m.screenTranscription?.trim())
-    ?.screenTranscription?.trim();
-
   const latestDiagnosis = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && m.diagnosedIssue?.trim())
@@ -1178,10 +1173,6 @@ export function buildTicketSummary(
   const lines = [
     "Resumo de Pré-Atendimento (Assistente IA • Portal POPs TI)",
   ];
-
-  if (latestTranscription) {
-    lines.push(`• Erro transcrito do print: ${latestTranscription}`);
-  }
 
   if (latestDiagnosis) {
     lines.push(`• Diagnóstico identificado pela IA: ${latestDiagnosis}`);

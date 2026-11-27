@@ -124,14 +124,12 @@ function buildSystemInstruction(hasImage: boolean): string {
   return `Você é a IA Especialista e Guia de Autoajuda da TI ECOVIS BPO (Windows 10/11, Microsoft 365, Outlook, Teams, Excel, Word, OneDrive, Redes/Wi-Fi, Monitores, Impressoras, Certificados Digitais A1/A3 e Sistemas/ERP).
 
 PROTOCOLO N° 1 — QUANDO HOUVER IMAGEM / PRINT DA TELA (PRIORIDADE MÁXIMA):
-1. OCR EXATO (PALAVRA POR PALAVRA):
-   - Leia com precisão absoluta tudo o que está escrito na imagem: título da janela, mensagem completa do erro, códigos (0x..., ERR_..., HTTP 403/500, avisos do Outlook, Excel, OneDrive, Windows ou navegador) e botões.
-   - NUNCA invente palavras que não estejam visíveis na tela.
-2. PREENCHA OBRIGATORIAMENTE "screenTranscription":
-   - Transcreva literalmente o nome da janela/programa e o texto exato do erro exibido na imagem (se estiver em inglês, copie o texto exato e traduza entre parênteses ao lado). Se não for uma janela de erro, descreva exatamente o que aparece na tela.
-3. ZERO DÚVIDA — ENTREGUE A MELHOR SOLUÇÃO COMPLETA NA HORA:
+1. LEITURA PRECISA DA IMAGEM:
+   - Leia com atenção tudo o que aparece na imagem: título da janela, mensagem do erro, códigos (0x..., ERR_..., HTTP 403/500, avisos do Outlook, Excel, OneDrive, Windows ou navegador) e botões disponíveis.
+   - NUNCA invente elementos que não estejam visíveis na tela e NÃO repita/transcreva blocos crus do texto da tela sem necessidade.
+2. ZERO DÚVIDA — ENTREGUE A MELHOR SOLUÇÃO COMPLETA NA HORA:
    - Diante de um print com erro ou falha visível, NUNCA fique em dúvida e NÃO use "responseMode": "investigate"! Use SEMPRE "solve" (ou "escalate" se exigir senha de Administrador/TI).
-   - Em "content": explique com segurança e linguagem simples (acessível até para leigos) a causa exata desse erro.
+   - Em "content": explique com segurança e linguagem simples (acessível até para leigos) o que significa esse erro e a causa dele.
    - Em "steps": entregue imediatamente o passo a passo mais eficaz para resolver de vez, dizendo em qual botão da janela clicar e o que fazer em seguida.
    - Em "commands": inclua comandos seguros copiáveis (CMD ou Win + R) sempre que ajudarem a destravar esse erro mais rápido.
 
@@ -147,7 +145,6 @@ REGRAS DE SEGURANÇA CORPORATIVA ECOVIS BPO:
 FORMATO JSON OBRIGATÓRIO DE RESPOSTA:
 {
   "responseMode": "solve",
-  "screenTranscription": "Texto literal lido na imagem (ou string vazia se não houver imagem)",
   "content": "Explicação simples, segura e direta em português",
   "steps": ["Passo 1 claro", "Passo 2 claro"],
   "commands": [{"label": "Título curto", "whereToRun": "cmd", "command": "ipconfig /flushdns", "explanation": "O que faz em 1 frase"}],
@@ -168,7 +165,6 @@ const RESPONSE_JSON_SCHEMA = {
       type: "string",
       enum: ["investigate", "solve", "escalate"],
     },
-    screenTranscription: { type: "string" },
     content: { type: "string" },
     steps: {
       type: "array",
@@ -198,7 +194,7 @@ const RESPONSE_JSON_SCHEMA = {
     diagnosedIssue: { type: "string" },
     suggestTicket: { type: "boolean" },
   },
-  required: ["responseMode", "screenTranscription", "content", "suggestTicket"],
+  required: ["responseMode", "content", "suggestTicket"],
 };
 
 const FORBIDDEN_COMMAND_PATTERNS = [
@@ -709,8 +705,8 @@ export async function POST(request: Request) {
 
   const effectiveUserMessage = hasValidImage
     ? rawMessage
-      ? `Analise este print da tela junto com meu relato: "${rawMessage}". Transcreva literalmente em "screenTranscription" tudo o que o erro/tela mostra (título da janela, código e texto exato) e entregue a melhor solução passo a passo sem ficar em dúvida.`
-      : `Analise este print da minha tela. Transcreva literalmente em "screenTranscription" o título da janela, qualquer código e a mensagem exata exibida na tela, explique de forma simples o que causou isso e entregue imediatamente a melhor solução passo a passo completa (responseMode="solve" ou "escalate").`
+      ? `Analise este print da tela junto com meu relato: "${rawMessage}". Explique de forma simples o que está acontecendo e entregue a melhor solução passo a passo sem ficar em dúvida.`
+      : `Analise este print da minha tela, explique de forma simples o que causou esse erro/aviso e entregue imediatamente a melhor solução passo a passo completa (responseMode="solve" ou "escalate").`
     : rawMessage;
 
   const contextNote = body.currentPopCode
@@ -761,12 +757,6 @@ export async function POST(request: Request) {
       parsed.responseMode === "escalate"
         ? parsed.responseMode
         : "solve";
-
-    const safeScreenTranscription =
-      typeof parsed.screenTranscription === "string" &&
-      parsed.screenTranscription.trim().length > 0
-        ? parsed.screenTranscription.trim().slice(0, 600)
-        : undefined;
 
     const safeCommands =
       responseMode !== "investigate" && Array.isArray(parsed.commands)
@@ -820,7 +810,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       responseMode,
-      screenTranscription: safeScreenTranscription,
       content: parsed.content.trim(),
       steps: safeSteps && safeSteps.length > 0 ? safeSteps : undefined,
       commands:

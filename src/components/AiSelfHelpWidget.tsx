@@ -56,7 +56,7 @@ function createWelcomeMessage(): ChatMessage {
     id: "welcome-msg",
     role: "assistant",
     content:
-      "Olá! Sou a IA de Autoajuda da TI ECOVIS BPO. 😊\n\nApareceu algum erro na tela ou não sabe explicar o problema? Tire um print (Win + Shift + S) e cole aqui com Ctrl + V — eu leio exatamente o que está escrito na tela, transcrevo o erro e te dou a solução passo a passo!",
+      "Olá! Sou a IA de Autoajuda da TI ECOVIS BPO. 😊\n\nApareceu algum erro na tela ou não sabe explicar o problema? Tire um print (Win + Shift + S) e cole aqui com Ctrl + V — eu identifico o erro na hora e já te dou a solução passo a passo!",
     suggestTicket: false,
     askResolutionFeedback: false,
     timestamp: Date.now(),
@@ -514,18 +514,6 @@ export function AiSelfHelpWidget({
                           alt="Print enviado pelo colaborador"
                           className="max-h-48 w-auto object-contain rounded-xl"
                         />
-                      </div>
-                    )}
-
-                    {/* Caixa de Transcrição Fiel do Erro Lido na Tela */}
-                    {msg.screenTranscription && (
-                      <div className="mb-2.5 rounded-xl bg-stone-900 text-stone-100 border border-stone-700 px-3 py-2">
-                        <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-300 mb-0.5">
-                          🔎 Erro / Texto transcrito do seu print:
-                        </div>
-                        <div className="font-mono text-[11.5px] text-white leading-snug break-words">
-                          {msg.screenTranscription}
-                        </div>
                       </div>
                     )}
 
